@@ -19,8 +19,10 @@ RaftNodeImpl::RaftNodeImpl():current_term_(0),
   commit_index_(0),
   last_applied_index_(0),
   node_endpoint_(),
+  election_timeout_checker_(NULL),
   node_index_(NULL){
   node_index_ = new std::map<std::string, NodeIndex>();
+  election_timeout_checker_ = new ThreadPool(1);
 }
 
 RaftNodeImpl::~RaftNodeImpl() {}
@@ -42,6 +44,16 @@ bool RaftNodeImpl::Init() {
   }
   LOG(INFO, "init node with endpoint %s successfully", node_endpoint_.c_str());
   return true;
+}
+
+void RaftNodeImpl::HandleElectionTimeout() {
+  if (state_ == RAFT_STATE_LEADER) {
+    return;
+  }
+}
+
+int32_t RaftNodeImpl::GenerateRandTimeout() {
+   
 }
 
 }
