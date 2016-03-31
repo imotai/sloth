@@ -25,27 +25,20 @@ PROTO_SRC = $(patsubst %.proto,%.pb.cc,$(PROTO_FILE))
 PROTO_HEADER = $(patsubst %.proto,%.pb.h,$(PROTO_FILE))
 PROTO_OBJ = $(patsubst %.proto,%.pb.o,$(PROTO_FILE))
 
-DQS_SRC = $(wildcard src/*.cc)
-DQS_OBJ = $(patsubst %.cc, %.o, $(DQS_SRC))
-DQS_HEADER = $(wildcard src/*.h)
+SLOTH_SRC = $(wildcard src/*.cc)
+SLOTH_OBJ = $(patsubst %.cc, %.o, $(SLOTH_SRC))
+SLOTH_HEADER = $(wildcard src/*.h)
 
-PERF_SRC = $(wildcard src/performance/*.cc)
-PERF_OBJ = $(patsubst %.cc, %.o, $(PERF_SRC))
-PERF_HEADER = $(wildcard src/performance/*.h)
-
-BIN = dqs perf
+BIN = sloth 
 all: $(BIN)  
 
 .PHONY: all clean test
 # Depends
-$(DQS_OBJ) : $(PROTO_HEADER)
-$(PERF_OBJ) : $(PERF_HEADER)
+$(PROTO_OBJ) : $(PROTO_HEADER)
+$(SLOTH_OBJ) : $(PROTO_OBJ) 
 # Targets
-dqs: $(DQS_OBJ) $(PROTO_OBJ)
-	$(CXX) $(DQS_OBJ) src/proto/dqs.pb.o  -o $@  $(LDFLAGS)
-
-perf : $(PERF_OBJ) $(PROTO_OBJ)
-	$(CXX) $(PERF_OBJ) src/proto/dqs.pb.o  -o $@  $(LDFLAGS)
+sloth: $(SLOTH_OBJ) $(PROTO_OBJ)
+	$(CXX) $(SLOTH_OBJ) $(PROTO_OBJ) -o $@  $(LDFLAGS)
 
 %.o: %.cc
 	$(CXX) $(CXXFLAGS) $(INCLUDE) -c $< -o $@
@@ -55,17 +48,9 @@ perf : $(PERF_OBJ) $(PROTO_OBJ)
 
 clean:
 	rm -rf $(BIN) 
-	rm -rf $(DQS_OBJ) $(PERF_OBJ)  
+	rm -rf $(SLOTH_OBJ)  
 	rm -rf $(PROTO_OBJ)
 	rm -rf $(PROTO_SRC) $(PROTO_HEADER)
-
-install: $(BIN) $(LIBS)
-	mkdir -p $(PREFIX)/bin
-	mkdir -p $(PREFIX)/lib
-	mkdir -p $(PREFIX)/include/sdk
-	cp $(BIN) $(PREFIX)/bin
-	cp $(LIBS) $(PREFIX)/lib
-	cp src/sdk/*.h $(PREFIX)/include/sdk
 
 
 

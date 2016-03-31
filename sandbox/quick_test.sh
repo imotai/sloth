@@ -1,12 +1,9 @@
 #!/usr/bin/env sh
 hn=`hostname -i`
-echo "--ins_servers=$hn:8868,$hn:8869,$hn:8870,$hn:8871,$hn:8872" > dqs.flags
-echo "--dqs_port=9527" >> dqs.flags
+echo "/tmp/core.%e.%p.%h.%t" > /proc/sys/kernel/core_pattern
+ulimit -c unlimited
 
-echo "--dqs_server=127.0.0.1:9527" > client.flags
-echo "--perf_thread_count=1" >> client.flags
-echo "--perf_value=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" >>client.flags
-
+echo "--node_list=$hn:8868,$hn:8869,$hn:8870,$hn:8871,$hn:8872" > sloth.flag
 sh start_all.sh
 
 

@@ -1,4 +1,4 @@
-package raft;
+package sloth;
 
 option cc_generic_services = true;
 option py_generic_services = true;
@@ -14,7 +14,7 @@ enum RpcStatus {
 // request node to vote for the requestor
 message RequestVoteRequest {
   optional uint64 term = 1;
-  optional uint64 candidate_id = 2;
+  optional string candidate_id = 2;
   optional uint64 last_log_index = 3;
   optional uint64 last_log_term = 4;
 }
@@ -56,7 +56,7 @@ message PutResponse {
   optional RpcStatus status = 1;
 }
 
-service RaftNode {
+service SlothNode {
   rpc RequestVote(RequestVoteRequest) returns(RequestVoteResponse);
   rpc AppendEntries(AppendEntriesRequest) returns(AppendEntriesResponse);
 
