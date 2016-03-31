@@ -51,10 +51,11 @@ public:
                      AppendEntriesResponse* response,
                      Closure* done);
 private:
-
+  void HandleVoteTimeout();
   void HandleElectionTimeout();
   void SendVoteRequest(const std::string& endpoint);
-  void SendVoteRequestCallback(const RequestVoteRequest* request,
+  void SendVoteRequestCallback(const std::string endpoint,
+                               const RequestVoteRequest* request,
                                RequestVoteResponse* response,
                                bool failed, int error);
 
@@ -86,6 +87,8 @@ private:
   ThreadPool* replicate_log_worker_;
   // for candidate
   VoteCount vote_count_;
+  ThreadPool* vote_timeout_checker_;
+  int64_t vote_timeout_task_id_;
 
 };
 

@@ -14,6 +14,7 @@ DECLARE_int32(node_idx);
 DECLARE_int32(max_follower_elect_timeout);
 DECLARE_int32(min_follower_elect_timeout);
 DECLARE_int32(replicate_log_interval);
+DECLARE_int32(wait_vote_back_timeout);
 
 using ::baidu::common::INFO;
 using ::baidu::common::WARNING;
@@ -31,10 +32,12 @@ SlothNodeImpl::SlothNodeImpl():mu_(),
   election_timeout_checker_(NULL),
   node_index_(NULL),
   replicate_log_worker_(NULL),
-  vote_count_(){
+  vote_count_(),
+  vote_timeout_task_id_(0){
   node_index_ = new std::map<std::string, NodeIndex>();
   election_timeout_checker_ = new ThreadPool(1);
-  replicate_log_worker_ = new ThreadPool(1);
+  replicate_log_worker_ = new ThreadPool(5);
+  vote_timeout_checker_ = new ThreadPool(1);
   vote_count_.term = current_term_;
   vote_count_.count = 0;
   client_ = new RpcClient();
@@ -66,6 +69,13 @@ bool SlothNodeImpl::Init() {
   return true;
 }
 
+void SlothNodeImpl::HandleVoteTimeout() {
+  MutexLock lock(&mu_);
+  if (state_ != ROLE_STATE_CANDIDATE) {
+    return; 
+  }
+  election_timeout_checker_->AddTask(boost::bind(&SlothNodeImpl::HandleElectionTimeout, this));
+}
 
 void SlothNodeImpl::HandleElectionTimeout() {
   MutexLock lock(&mu_);
@@ -73,6 +83,7 @@ void SlothNodeImpl::HandleElectionTimeout() {
     // exit election timeout check
     return;
   }
+  state_ = ROLE_STATE_CANDIDATE;
   current_term_++;
   vote_count_.term = current_term_;
   vote_count_.count = 0;
@@ -88,9 +99,8 @@ void SlothNodeImpl::HandleElectionTimeout() {
     }
     SendVoteRequest(endpoint);
   }
-  uint32_t timeout = GenerateRandTimeout();
-  LOG(DEBUG, "add vote timeout handler with timeout %d", timeout);
-  election_timeout_task_id_ = election_timeout_checker_->DelayTask(timeout, boost::bind(&SlothNodeImpl::HandleElectionTimeout, this));
+  vote_timeout_task_id_ = vote_timeout_checker_->DelayTask(FLAGS_wait_vote_back_timeout, 
+      boost::bind(&SlothNodeImpl::HandleVoteTimeout, this));
 }
 
 
@@ -100,10 +110,11 @@ void SlothNodeImpl::SendVoteRequest(const std::string& endpoint) {
   client_->GetStub(endpoint, &other_node);
   RequestVoteRequest* request = new RequestVoteRequest();
   RequestVoteResponse* response = new RequestVoteResponse();
-  request->set_term(vote_count_.term);
-  request->set_candidate_id(endpoint);
+  request->set_term(current_term_);
+  request->set_candidate_id(node_endpoint_);
   boost::function<void (const RequestVoteRequest*, RequestVoteResponse*, bool, int)> callback;
-  callback = boost::bind(&SlothNodeImpl::SendVoteRequestCallback, this, _1, _2, _3, _4);
+  callback = boost::bind(&SlothNodeImpl::SendVoteRequestCallback, this, endpoint,
+                         _1, _2, _3, _4);
   client_->AsyncRequest(other_node,
                         &SlothNode_Stub::RequestVote,
                         request, response,
@@ -113,9 +124,16 @@ void SlothNodeImpl::SendVoteRequest(const std::string& endpoint) {
   delete other_node;
 }
 
-void SlothNodeImpl::SendVoteRequestCallback(const RequestVoteRequest* request,
+void SlothNodeImpl::SendVoteRequestCallback(const std::string endpoint,
+                                            const RequestVoteRequest* request,
                                             RequestVoteResponse* response,
                                             bool, int) {
+  LOG(DEBUG, "request vote come back from %s  current_term %ld agree %d vote count %ld role %d",
+      endpoint.c_str(),
+      current_term_,
+      response->vote_granted(),
+      vote_count_.count,
+      state_);
   bool do_replication = false;
   {
     MutexLock lock(&mu_); 
@@ -126,23 +144,31 @@ void SlothNodeImpl::SendVoteRequestCallback(const RequestVoteRequest* request,
       return;
     }
     if (response->vote_granted()) {
-      vote_count_.count++;
+      vote_count_.count += 1;
       uint32_t major_count = 0;
       if (node_index_->size() % 2) {
         major_count = node_index_->size() / 2 +1;
       }else {
         major_count = node_index_->size() / 2;
       }
-      if (vote_count_.count >= major_count) {
+      if (vote_count_.count >= 3) {
         LOG(DEBUG, "I am the leader with term %ld", current_term_);
-        election_timeout_checker_->CancelTask(election_timeout_task_id_);
+        if (vote_timeout_task_id_ != 0) {
+          bool cancel_ok = vote_timeout_checker_->CancelTask(vote_timeout_task_id_);
+          if (cancel_ok) {
+            LOG(DEBUG, "cancel vote timeout task %ld successfully", vote_timeout_task_id_);
+          } else if (election_timeout_task_id_ != 0) {
+            election_timeout_checker_->CancelTask(election_timeout_task_id_);
+            election_timeout_task_id_ = 0;
+          }
+          vote_timeout_task_id_ = 0;
+        }
         state_ = ROLE_STATE_LEADER;
-        election_timeout_task_id_ = -1;
         do_replication = true;
       }
       LOG(INFO, "vote result major count %d", major_count);
     } else {
-
+      LOG(DEBUG, "node reject vote ");
     }
 
   }
@@ -159,11 +185,28 @@ void SlothNodeImpl::AppendEntries(RpcController* controller,
                                   Closure* done) {
   MutexLock lock(&mu_);
   if (request->term() >= current_term_) {
+    if (vote_timeout_task_id_ != 0) {
+      vote_timeout_checker_->CancelTask(vote_timeout_task_id_);
+    }
+    if (election_timeout_task_id_ != 0) {
+      election_timeout_checker_->CancelTask(election_timeout_task_id_);
+    }
+    current_term_ = request->term();
     state_ = ROLE_STATE_FOLLWER;
     LOG(DEBUG, "receive append request from %s", request->leader_id().c_str());
-    election_timeout_checker_->CancelTask(election_timeout_task_id_);
     uint32_t timeout = GenerateRandTimeout();
     election_timeout_task_id_ = election_timeout_checker_->DelayTask(timeout, boost::bind(&SlothNodeImpl::HandleElectionTimeout, this));
+    response->set_success(true);
+    response->set_term(current_term_);
+    response->set_status(kRpcOk);
+    done->Run();
+    return;
+  } else {
+    response->set_success(false);
+    response->set_term(current_term_);
+    response->set_status(kRpcOk);
+    done->Run();
+    return;
   }
 }
 
@@ -248,7 +291,6 @@ void SlothNodeImpl::RequestVote(RpcController* controller,
   response->set_vote_granted(true);
   done->Run();
 }
-
 
 uint32_t SlothNodeImpl::GenerateRandTimeout() {
   uint32_t offset = FLAGS_max_follower_elect_timeout - FLAGS_min_follower_elect_timeout;
