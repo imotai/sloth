@@ -26,7 +26,7 @@ public:
   bool Init();
 private:
   void HandleElectionTimeout();
-  int32_t GenerateRandTimeout();
+  uint32_t GenerateRandTimeout();
 private:
   // the term of raft
   volatile uint64_t current_term_;

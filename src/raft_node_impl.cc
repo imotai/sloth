@@ -1,12 +1,15 @@
 #include "raft_node_impl.h"
 
 #include <vector>
+#include <stdlib.h>
 #include <boost/algorithm/string.hpp>
 #include "gflags/gflags.h"
 #include "logging.h"
 
 DECLARE_string(node_list);
 DECLARE_uint32(node_idx);
+DECLARE_uint32(max_follower_elect_timeout);
+DECLARE_uint32(min_follower_elect_timeout);
 
 using ::baidu::common::INFO;
 using ::baidu::common::WARNING;
@@ -43,6 +46,7 @@ bool RaftNodeImpl::Init() {
     node_index_->insert(std::make_pair(nodes[index], node_index));
   }
   LOG(INFO, "init node with endpoint %s successfully", node_endpoint_.c_str());
+  election_timeout_checker_->AddTask(boost)
   return true;
 }
 
@@ -52,8 +56,9 @@ void RaftNodeImpl::HandleElectionTimeout() {
   }
 }
 
-int32_t RaftNodeImpl::GenerateRandTimeout() {
-   
+uint32_t RaftNodeImpl::GenerateRandTimeout() {
+  uint32_t offset = FLAGS_max_follower_elect_timeout - FLAGS_min_follower_elect_timeout;
+  uint32_t timeout = rand() % offset;
 }
 
 }
