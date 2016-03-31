@@ -110,7 +110,7 @@ void SlothNodeImpl::SendVoteRequest(const std::string& endpoint) {
   client_->GetStub(endpoint, &other_node);
   RequestVoteRequest* request = new RequestVoteRequest();
   RequestVoteResponse* response = new RequestVoteResponse();
-  request->set_term(current_term_);
+  request->set_term(vote_count_.term);
   request->set_candidate_id(node_endpoint_);
   boost::function<void (const RequestVoteRequest*, RequestVoteResponse*, bool, int)> callback;
   callback = boost::bind(&SlothNodeImpl::SendVoteRequestCallback, this, endpoint,
@@ -151,7 +151,7 @@ void SlothNodeImpl::SendVoteRequestCallback(const std::string endpoint,
       }else {
         major_count = node_index_->size() / 2;
       }
-      if (vote_count_.count >= 3) {
+      if (vote_count_.count >= major_count) {
         LOG(DEBUG, "I am the leader with term %ld", current_term_);
         if (vote_timeout_task_id_ != 0) {
           bool cancel_ok = vote_timeout_checker_->CancelTask(vote_timeout_task_id_);
