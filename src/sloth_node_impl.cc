@@ -85,7 +85,7 @@ void SlothNodeImpl::HandleVoteTimeout(uint64_t term) {
     return; 
   }
   MutexLock lock(&mu_);
-  election_timeout_task_id_ = election_timeout_checker_->AddTask(boost::bind(&SlothNodeImpl::HandleElectionTimeout, this, current_term_));
+  election_timeout_checker_->AddTask(boost::bind(&SlothNodeImpl::HandleElectionTimeout, this, current_term_));
 }
 
 void SlothNodeImpl::HandleElectionTimeout(uint64_t term) {
