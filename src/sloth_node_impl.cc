@@ -191,20 +191,17 @@ void SlothNodeImpl::AppendEntries(RpcController* controller,
     current_term_ = request->term();
     state_ = ROLE_STATE_FOLLWER;
     leader_endpoint_ = request->leader_id();
-    LOG(DEBUG, "receive append request from %s", request->leader_id().c_str());
     uint32_t timeout = GenerateRandTimeout();
     election_timeout_task_id_ = election_timeout_checker_->DelayTask(timeout, boost::bind(&SlothNodeImpl::HandleElectionTimeout, this));
     response->set_success(true);
     response->set_term(current_term_);
     response->set_status(kRpcOk);
     done->Run();
-    return;
   } else {
     response->set_success(false);
     response->set_term(current_term_);
     response->set_status(kRpcOk);
     done->Run();
-    return;
   }
 }
 
@@ -246,7 +243,6 @@ void SlothNodeImpl::SendAppendEntries(const std::string& endpoint) {
                         request, response,
                         callback,
                         5, 0);
-  LOG(DEBUG, "append entries request to %s", endpoint.c_str());
   delete other_node;
 }
 
