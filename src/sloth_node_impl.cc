@@ -64,21 +64,41 @@ bool SlothNodeImpl::Init() {
   srand(::baidu::common::timer::get_micros());
   uint32_t timeout = GenerateRandTimeout();
   LOG(DEBUG, "add election timeout handler with timeout %d", timeout);
-  election_timeout_task_id_ = election_timeout_checker_->DelayTask(timeout, boost::bind(&SlothNodeImpl::HandleElectionTimeout, this));
+  election_timeout_task_id_ = election_timeout_checker_->DelayTask(timeout, boost::bind(&SlothNodeImpl::HandleElectionTimeout, this, current_term_));
   LOG(DEBUG, "init node with endpoint %s successfully", node_endpoint_.c_str());
   return true;
 }
 
-void SlothNodeImpl::HandleVoteTimeout() {
+void SlothNodeImpl::ResetElectionTimeout() {
+  mu_.AssertHeld();
+  LOG(DEBUG, "reset election_timeout with term %ld", current_term_);
+  if (vote_timeout_task_id_ != 0) { 
+    vote_timeout_checker_->CancelTask(vote_timeout_task_id_);
+  }
+  if (election_timeout_task_id_ != 0) {
+    election_timeout_checker_->CancelTask(election_timeout_task_id_);
+  }
+  uint32_t timeout = GenerateRandTimeout();
+  election_timeout_task_id_ = election_timeout_checker_->DelayTask(timeout, boost::bind(&SlothNodeImpl::HandleElectionTimeout, this, current_term_));
+}
+
+void SlothNodeImpl::HandleVoteTimeout(uint64_t term) {
   MutexLock lock(&mu_);
+  // term has changed, do nothing
+  if (term != current_term_) {
+    return;
+  }
   if (state_ != ROLE_STATE_CANDIDATE) {
     return; 
   }
-  election_timeout_checker_->AddTask(boost::bind(&SlothNodeImpl::HandleElectionTimeout, this));
+  election_timeout_checker_->AddTask(boost::bind(&SlothNodeImpl::HandleElectionTimeout, this, current_term_));
 }
 
-void SlothNodeImpl::HandleElectionTimeout() {
+void SlothNodeImpl::HandleElectionTimeout(uint64_t term) {
   MutexLock lock(&mu_);
+  if (term != current_term_) {
+    return;
+  }
   if (state_ == ROLE_STATE_LEADER) {
     // exit election timeout check
     return;
@@ -100,7 +120,7 @@ void SlothNodeImpl::HandleElectionTimeout() {
     SendVoteRequest(endpoint);
   }
   vote_timeout_task_id_ = vote_timeout_checker_->DelayTask(FLAGS_wait_vote_back_timeout, 
-      boost::bind(&SlothNodeImpl::HandleVoteTimeout, this));
+      boost::bind(&SlothNodeImpl::HandleVoteTimeout, this, current_term_));
 }
 
 
@@ -113,7 +133,7 @@ void SlothNodeImpl::SendVoteRequest(const std::string& endpoint) {
   request->set_term(vote_count_.term);
   request->set_candidate_id(node_endpoint_);
   boost::function<void (const RequestVoteRequest*, RequestVoteResponse*, bool, int)> callback;
-  callback = boost::bind(&SlothNodeImpl::SendVoteRequestCallback, this, endpoint,
+  callback = boost::bind(&SlothNodeImpl::SendVoteRequestCallback, this, endpoint, current_term_,
                          _1, _2, _3, _4);
   client_->AsyncRequest(other_node,
                         &SlothNode_Stub::RequestVote,
@@ -125,6 +145,7 @@ void SlothNodeImpl::SendVoteRequest(const std::string& endpoint) {
 }
 
 void SlothNodeImpl::SendVoteRequestCallback(const std::string endpoint,
+                                            uint64_t term,
                                             const RequestVoteRequest* request,
                                             RequestVoteResponse* response,
                                             bool, int) {
@@ -137,6 +158,9 @@ void SlothNodeImpl::SendVoteRequestCallback(const std::string endpoint,
   bool do_replication = false;
   {
     MutexLock lock(&mu_); 
+    if (term != current_term_) {
+      return;
+    }
     if (state_ == ROLE_STATE_FOLLWER) {
       return;
     }
@@ -182,20 +206,13 @@ void SlothNodeImpl::AppendEntries(RpcController* controller,
                                   Closure* done) {
   MutexLock lock(&mu_);
   if (request->term() >= current_term_) {
-    if (vote_timeout_task_id_ != 0) {
-      vote_timeout_checker_->CancelTask(vote_timeout_task_id_);
-    }
-    if (election_timeout_task_id_ != 0) {
-      election_timeout_checker_->CancelTask(election_timeout_task_id_);
-    }
     current_term_ = request->term();
     state_ = ROLE_STATE_FOLLWER;
     leader_endpoint_ = request->leader_id();
-    uint32_t timeout = GenerateRandTimeout();
-    election_timeout_task_id_ = election_timeout_checker_->DelayTask(timeout, boost::bind(&SlothNodeImpl::HandleElectionTimeout, this));
     response->set_success(true);
     response->set_term(current_term_);
     response->set_status(kRpcOk);
+    ResetElectionTimeout();
     done->Run();
   } else {
     response->set_success(false);
@@ -252,10 +269,8 @@ void SlothNodeImpl::SendAppendEntriesCallback(const AppendEntriesRequest* reques
   MutexLock lock(&mu_);
   if (request->term() > current_term_) {
     state_ = ROLE_STATE_FOLLWER;
-    uint32_t timeout = GenerateRandTimeout();
     current_term_ = request->term();
-    election_timeout_checker_->CancelTask(election_timeout_task_id_);
-    election_timeout_task_id_ = election_timeout_checker_->DelayTask(timeout, boost::bind(&SlothNodeImpl::HandleElectionTimeout, this));
+    ResetElectionTimeout();
   }
   delete request;
   delete response;

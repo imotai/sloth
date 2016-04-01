@@ -16,6 +16,7 @@ using ::baidu::common::MutexLock;
 
 namespace sloth {
 
+
 struct NodeIndex {
   uint64_t next_index;
   uint64_t match_index;
@@ -57,10 +58,14 @@ public:
                         Closure* done);
   
 private:
-  void HandleVoteTimeout();
-  void HandleElectionTimeout();
+  // reset election timeout, when leader heart beat , vote timeout 
+  // or term is mismatch
+  void ResetElectionTimeout();
+  void HandleVoteTimeout(uint64_t term);
+  void HandleElectionTimeout(uint64_t term);
   void SendVoteRequest(const std::string& endpoint);
   void SendVoteRequestCallback(const std::string endpoint,
+                               uint64_t term,
                                const RequestVoteRequest* request,
                                RequestVoteResponse* response,
                                bool failed, int error);
