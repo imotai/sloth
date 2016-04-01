@@ -61,6 +61,8 @@ private:
   // reset election timeout, when leader heart beat , vote timeout 
   // or term is mismatch
   void ResetElectionTimeout();
+
+  void StopCheckElectionTimeout();
   void HandleVoteTimeout(uint64_t term);
   void HandleElectionTimeout(uint64_t term);
   void SendVoteRequest(const std::string& endpoint);

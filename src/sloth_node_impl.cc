@@ -71,13 +71,7 @@ bool SlothNodeImpl::Init() {
 
 void SlothNodeImpl::ResetElectionTimeout() {
   mu_.AssertHeld();
-  LOG(DEBUG, "reset election_timeout with term %ld", current_term_);
-  if (vote_timeout_task_id_ != 0) { 
-    vote_timeout_checker_->CancelTask(vote_timeout_task_id_);
-  }
-  if (election_timeout_task_id_ != 0) {
-    election_timeout_checker_->CancelTask(election_timeout_task_id_);
-  }
+  StopCheckElectionTimeout();
   uint32_t timeout = GenerateRandTimeout();
   election_timeout_task_id_ = election_timeout_checker_->DelayTask(timeout, boost::bind(&SlothNodeImpl::HandleElectionTimeout, this, current_term_));
 }
@@ -174,16 +168,7 @@ void SlothNodeImpl::SendVoteRequestCallback(const std::string endpoint,
       if (vote_count_.count >= major_count) {
         LOG(DEBUG, "I am the leader with term %ld", current_term_);
         leader_endpoint_ = node_endpoint_;
-        if (vote_timeout_task_id_ != 0) {
-          bool cancel_ok = vote_timeout_checker_->CancelTask(vote_timeout_task_id_);
-          if (cancel_ok) {
-            LOG(DEBUG, "cancel vote timeout task %ld successfully", vote_timeout_task_id_);
-          } else if (election_timeout_task_id_ != 0) {
-            election_timeout_checker_->CancelTask(election_timeout_task_id_);
-            election_timeout_task_id_ = 0;
-          }
-          vote_timeout_task_id_ = 0;
-        }
+        StopCheckElectionTimeout();
         state_ = ROLE_STATE_LEADER;
         do_replication = true;
       }
@@ -198,6 +183,18 @@ void SlothNodeImpl::SendVoteRequestCallback(const std::string endpoint,
   }
   delete request;
   delete response;
+}
+
+void SlothNodeImpl::StopCheckElectionTimeout() {
+  mu_.AssertHeld();
+  if (vote_timeout_task_id_ != 0) { 
+    vote_timeout_checker_->CancelTask(vote_timeout_task_id_, true);
+    vote_timeout_task_id_ = 0;
+  }
+  if (election_timeout_task_id_ != 0) {
+    election_timeout_checker_->CancelTask(election_timeout_task_id_, true);
+    election_timeout_task_id_ = 0;
+  }
 }
 
 void SlothNodeImpl::AppendEntries(RpcController* controller,
