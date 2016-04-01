@@ -77,7 +77,6 @@ void SlothNodeImpl::ResetElectionTimeout() {
 }
 
 void SlothNodeImpl::HandleVoteTimeout(uint64_t term) {
-  MutexLock lock(&mu_);
   // term has changed, do nothing
   if (term != current_term_) {
     return;
@@ -85,11 +84,11 @@ void SlothNodeImpl::HandleVoteTimeout(uint64_t term) {
   if (state_ != ROLE_STATE_CANDIDATE) {
     return; 
   }
-  election_timeout_checker_->AddTask(boost::bind(&SlothNodeImpl::HandleElectionTimeout, this, current_term_));
+  MutexLock lock(&mu_);
+  election_timeout_task_id_ = election_timeout_checker_->AddTask(boost::bind(&SlothNodeImpl::HandleElectionTimeout, this, current_term_));
 }
 
 void SlothNodeImpl::HandleElectionTimeout(uint64_t term) {
-  MutexLock lock(&mu_);
   if (term != current_term_) {
     return;
   }
@@ -97,6 +96,7 @@ void SlothNodeImpl::HandleElectionTimeout(uint64_t term) {
     // exit election timeout check
     return;
   }
+  MutexLock lock(&mu_);
   state_ = ROLE_STATE_CANDIDATE;
   current_term_++;
   vote_count_.term = current_term_;

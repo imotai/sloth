@@ -82,9 +82,9 @@ private:
 private:
   Mutex mu_;
   // the term of raft
-  uint64_t current_term_;
+  volatile uint64_t current_term_;
   // the state of node
-  uint32_t state_;
+  volatile uint32_t state_;
   // the commit index
   uint64_t commit_index_;
   // the last applied index 
