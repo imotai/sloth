@@ -29,16 +29,22 @@ SLOTH_SRC = $(wildcard src/*.cc)
 SLOTH_OBJ = $(patsubst %.cc, %.o, $(SLOTH_SRC))
 SLOTH_HEADER = $(wildcard src/*.h)
 
-BIN = sloth 
+CLIENT_SRC = $(wildcard src/client/*.cc)
+CLIENT_OBJ = $(patsubst %.cc, %.o, $(CLIENT_SRC))
+
+BIN = sloth sloth_cli
 all: $(BIN)  
 
 .PHONY: all clean test
 # Depends
 $(PROTO_OBJ) : $(PROTO_HEADER)
-$(SLOTH_OBJ) : $(PROTO_OBJ) 
+$(CLIENT_OBJ) $(SLOTH_OBJ) : $(PROTO_OBJ) 
 # Targets
 sloth: $(SLOTH_OBJ) $(PROTO_OBJ)
 	$(CXX) $(SLOTH_OBJ) $(PROTO_OBJ) -o $@  $(LDFLAGS)
+
+sloth_cli: $(CLIENT_OBJ) $(PROTO_OBJ)
+	$(CXX) $(CLIENT_OBJ) $(PROTO_OBJ) -o $@  $(LDFLAGS)
 
 %.o: %.cc
 	$(CXX) $(CXXFLAGS) $(INCLUDE) -c $< -o $@

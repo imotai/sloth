@@ -56,12 +56,26 @@ message PutResponse {
   optional RpcStatus status = 1;
 }
 
+message GetClusterStatusRequest {}
+message GetClusterStatusResponse {
+  optional string node_endpoint = 1;
+  optional string node_role = 2;
+  optional string leader_endpoint = 3;
+  optional uint64 current_term = 4;
+  optional int32 node_idx = 5;
+}
+
 service SlothNode {
+
+  // raft internal rpc
   rpc RequestVote(RequestVoteRequest) returns(RequestVoteResponse);
   rpc AppendEntries(AppendEntriesRequest) returns(AppendEntriesResponse);
 
-  // method for leader
+  // method for client 
   rpc Put(PutRequest) returns(PutResponse);
+
+  // methon for monitor
+  rpc GetClusterStatus(GetClusterStatusRequest) returns(GetClusterStatusResponse);
 }
 
 

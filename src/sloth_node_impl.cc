@@ -146,13 +146,10 @@ void SlothNodeImpl::SendVoteRequestCallback(const std::string endpoint,
     if (response->vote_granted()) {
       vote_count_.count += 1;
       uint32_t major_count = 0;
-      if (node_index_->size() % 2) {
-        major_count = node_index_->size() / 2 +1;
-      }else {
-        major_count = node_index_->size() / 2;
-      }
+      major_count = node_index_->size() / 2 +1;
       if (vote_count_.count >= major_count) {
         LOG(DEBUG, "I am the leader with term %ld", current_term_);
+        leader_endpoint_ = node_endpoint_;
         if (vote_timeout_task_id_ != 0) {
           bool cancel_ok = vote_timeout_checker_->CancelTask(vote_timeout_task_id_);
           if (cancel_ok) {
@@ -193,6 +190,7 @@ void SlothNodeImpl::AppendEntries(RpcController* controller,
     }
     current_term_ = request->term();
     state_ = ROLE_STATE_FOLLWER;
+    leader_endpoint_ = request->leader_id();
     LOG(DEBUG, "receive append request from %s", request->leader_id().c_str());
     uint32_t timeout = GenerateRandTimeout();
     election_timeout_task_id_ = election_timeout_checker_->DelayTask(timeout, boost::bind(&SlothNodeImpl::HandleElectionTimeout, this));
@@ -289,6 +287,26 @@ void SlothNodeImpl::RequestVote(RpcController* controller,
         request->term(),
         current_term_);
   response->set_vote_granted(true);
+  done->Run();
+}
+
+void SlothNodeImpl::GetClusterStatus(RpcController* controller,
+                                    const GetClusterStatusRequest* request,
+                                    GetClusterStatusResponse* response,
+                                    Closure* done) {
+  MutexLock lock(&mu_);
+  LOG(DEBUG, "get status");
+  if (state_ == ROLE_STATE_CANDIDATE) {
+    response->set_node_role("candidate");
+  } else if (state_ == ROLE_STATE_LEADER) {
+    response->set_node_role("leader");
+  } else {
+    response->set_node_role("follower");
+  }
+  response->set_node_endpoint(node_endpoint_);
+  response->set_current_term(current_term_);
+  response->set_leader_endpoint(leader_endpoint_);
+  response->set_node_idx(FLAGS_node_idx);
   done->Run();
 }
 

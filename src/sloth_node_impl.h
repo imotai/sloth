@@ -50,6 +50,12 @@ public:
                      const AppendEntriesRequest* request,
                      AppendEntriesResponse* response,
                      Closure* done);
+  
+  void GetClusterStatus(RpcController* controller,
+                        const GetClusterStatusRequest* request,
+                        GetClusterStatusResponse* response,
+                        Closure* done);
+  
 private:
   void HandleVoteTimeout();
   void HandleElectionTimeout();
@@ -82,6 +88,7 @@ private:
   // for follower
   ThreadPool* election_timeout_checker_; 
   int64_t election_timeout_task_id_;
+  std::string leader_endpoint_;
   // for leaders
   std::map<std::string, NodeIndex>* node_index_;
   ThreadPool* replicate_log_worker_;
