@@ -89,6 +89,7 @@ void SlothNodeImpl::HandleVoteTimeout(uint64_t term) {
 }
 
 void SlothNodeImpl::HandleElectionTimeout(uint64_t term) {
+  LOG(INFO, "elect timeout with term %ld, current_term %ld", term, current_term_);
   if (term != current_term_) {
     return;
   }
