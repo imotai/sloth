@@ -7,7 +7,8 @@ using ::google::protobuf::Closure;
 
 namespace sloth {
 
-// the core logic for raft
+// the core logic for raft 
+// all functions will be processed by one thread and no mutex lock
 class SlothCore {
 
 public:
