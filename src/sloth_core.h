@@ -58,9 +58,11 @@ class SlothCore {
 public:
   SlothCore(boost::lockfree::queue<SlothEvent>* queue);
   ~SlothCore();
-  void Run();
+  bool Init();
+  void Start();
 
 private:
+  void Run();
   void HandleAppendEntry(AppendEntryData* data);
   void HandleElectionTimeout(ElectionTimeoutData* data);
   void ResetElectionTimeout();
@@ -87,7 +89,9 @@ private:
   volatile bool running_;
   RpcClient* rpc_client_;
   // for node
-  std::string endpoint_;
+  int32_t id_;
+  int32_t leader_id_;
+  std::vector<std::string> cluster_;
 };
 
 }

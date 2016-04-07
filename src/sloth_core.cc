@@ -1,5 +1,6 @@
 #include "sloth_core.h"
 
+#include <boost/algorithm/string.hpp>
 #include <stdlib.h>
 #include "gflags/gflags.h"
 
@@ -16,7 +17,7 @@ SlothCore::SlothCore(boost::lockfree::queue<SlothEvent>* queue):current_term_(1)
   role_(kFollower),queue_(queue),core_worker_(NULL),
   time_worker_(NULL),election_timeout_task_id_(0),
   vote_timeout_task_id_(0),count(),append_entry_worker_(NULL), running_(false),
-  rpc_client_(NULL){
+  rpc_client_(NULL),id_(-1),leader_id_(-1),cluster_(){
     core_worker_ = new ThreadPool(1);
     time_worker_ = new ThreadPool(2);
     append_entry_worker_ = new ThreadPool(5);
@@ -24,6 +25,15 @@ SlothCore::SlothCore(boost::lockfree::queue<SlothEvent>* queue):current_term_(1)
 }
 
 SlothCore::~SlothCore() {}
+
+bool SlothCore::Init() {
+  boost::split(cluster_, FLAGS_node_list, boost::is_any_of(","));
+  if ((size_t)FLAGS_node_idx >= cluster_.size()) {
+    return false;
+  }
+  id_ = FLAGS_node_idx;
+  return true;
+}
 
 void SlothCore::Run() {
   while (running_) {
@@ -38,7 +48,8 @@ void SlothCore::Run() {
         HandleAppendEntry(data);
         break;
       case kElectionTimeout:
-        HandleElectionTimeout();
+        ElectionTimeoutData* data = reinterpret_cast<ElectionTimeoutData*>(event.data);
+        HandleElectionTimeout(data);
         break;
     }
   }
