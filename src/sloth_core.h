@@ -3,6 +3,7 @@
 #include <boost/lockfree/queue.hpp>
 #include "proto/sloth_node.pb.h"
 #include "thread_pool.h"
+#include "rpc/rpc_client.h"
 
 using ::google::protobuf::RpcController;
 using ::google::protobuf::Closure;
@@ -28,6 +29,7 @@ struct VoteCount {
   int64_t term;
   int64_t count;
   VoteCount():term(0),count(0){}
+  void Reset();
 };
 
 struct AppendEntryData {
@@ -38,7 +40,16 @@ struct AppendEntryData {
                   AppendEntriesResponse* response,
                   Closure* done):request(request),
   response(response),done(done){}
-}
+};
+
+struct ElectionTimeoutData {
+  // the term when bind function
+  int64_t term;
+};
+
+struct VoteTimeoutData {
+  int64_t term;
+};
 
 // the core logic for raft 
 // all functions will be processed by one thread and no mutex lock
@@ -51,7 +62,11 @@ public:
 
 private:
   void HandleAppendEntry(AppendEntryData* data);
-  void HandleElectionTimeout();
+  void HandleElectionTimeout(ElectionTimeoutData* data);
+  void ResetElectionTimeout();
+  uint32_t GenRandTime();
+  void DispatchElectionTimeout(uint64_t term);
+  void SendVoteRequest(const std::string& endpoint);
 private:
   uint64_t current_term_;
   SlothNodeRole role_;
@@ -70,6 +85,9 @@ private:
   ThreadPool* append_entry_worker_;
 
   volatile bool running_;
+  RpcClient* rpc_client_;
+  // for node
+  std::string endpoint_;
 };
 
 }
