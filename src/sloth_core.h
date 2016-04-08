@@ -44,13 +44,21 @@ struct AppendEntryData {
 
 struct ElectionTimeoutData {
   // the term when bind function
-  int64_t term;
+  uint64_t term;
 };
 
 struct VoteTimeoutData {
-  int64_t term;
+  uint64_t term;
 };
 
+// the vote from other node
+struct VoteData {
+  // the term when candidate request a vote
+  uint64_t term_snapshot;
+  uint64_t term_from_node;
+  
+  bool vote_granted;
+};
 // the core logic for raft 
 // all functions will be processed by one thread and no mutex lock
 class SlothCore {
@@ -58,15 +66,49 @@ class SlothCore {
 public:
   SlothCore(boost::lockfree::queue<SlothEvent>* queue);
   ~SlothCore();
-  void Run();
+  bool Init();
+  void Start();
+  void Stop();
 
 private:
+  // boot raft core logic in single thread
+  void Run();
+  // process append entry request from leader
   void HandleAppendEntry(AppendEntryData* data);
+  // send append entry to followers
+  void HandleSendEntry();
+  // process election timeout event
   void HandleElectionTimeout(ElectionTimeoutData* data);
+  // process wait vote timeout for candidate
+  void HandleWaitVoteTimeout(VoteTimeoutData* data);
+  // when receiving heart beat from leader,
+  // reset all timeout checker
   void ResetElectionTimeout();
+  // when request a vote , reset wait vote timeout checker
+  // this function can be invoked by candidate
+  void ResetWaitVoteTimeout();
+  // generate randome election timeout
   uint32_t GenRandTime();
+  // dispatch election timeout event 
+  // and put it to queue
   void DispatchElectionTimeout(uint64_t term);
+  // dispatch wait vote timeout event 
+  // and put it to queue
+  void DispatchWaitVoteTimeout(uint64_t term);
   void SendVoteRequest(const std::string& endpoint);
+  void SendVoteRequestCallback(uint64_t term,
+                               const RequestVoteRequest* request,
+                               RequestVoteResponse* response,
+                               bool failed,
+                               int error);
+  // process the vote for me from other node
+  void HandleVote(VoteData* data);
+  // when a node become a leader 
+  // stop check election timeout
+  void StopCheckElectionTimeoutTask();
+  // when a node become a leader or follower
+  // stop check vote timeout
+  void StopCheckVoteTimeoutTask();
 private:
   uint64_t current_term_;
   SlothNodeRole role_;
@@ -83,11 +125,16 @@ private:
   VoteCount count;
   // for leader  dispatch append entry event
   ThreadPool* append_entry_worker_;
+  int64_t append_entry_task_id_;
 
   volatile bool running_;
   RpcClient* rpc_client_;
+
   // for node
-  std::string endpoint_;
+  int32_t id_;
+  int32_t leader_id_;
+  // cluster information
+  std::vector<std::string> cluster_;
 };
 
 }

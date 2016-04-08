@@ -1,6 +1,7 @@
 #include "sloth_core.h"
 
 #include <stdlib.h>
+#include <boost/algorithm/string.hpp>
 #include "gflags/gflags.h"
 
 DECLARE_string(node_list);
@@ -15,15 +16,40 @@ namespace sloth {
 SlothCore::SlothCore(boost::lockfree::queue<SlothEvent>* queue):current_term_(1),
   role_(kFollower),queue_(queue),core_worker_(NULL),
   time_worker_(NULL),election_timeout_task_id_(0),
-  vote_timeout_task_id_(0),count(),append_entry_worker_(NULL), running_(false),
-  rpc_client_(NULL){
-    core_worker_ = new ThreadPool(1);
-    time_worker_ = new ThreadPool(2);
-    append_entry_worker_ = new ThreadPool(5);
-    rpc_client_ = new RpcClient();
+  vote_timeout_task_id_(0),count(),append_entry_worker_(NULL),
+  append_entry_task_id_(0),running_(false),
+  rpc_client_(NULL), id_(-1), leader_id_(-1), cluster_(){
+  core_worker_ = new ThreadPool(1);
+  time_worker_ = new ThreadPool(3);
+  append_entry_worker_ = new ThreadPool(5);
+  rpc_client_ = new RpcClient();
 }
 
 SlothCore::~SlothCore() {}
+
+bool SlothCore::Init() {
+  boost::split(cluster_, FLAGS_node_list, boost::is_any_of(","));
+  if (cluster_.size() <=2) {
+    return false;
+  }
+  if ((size_t)FLAGS_node_idx >= cluster_.size()) {
+    return false;
+  }
+  id_ = FLAGS_node_idx;
+  return true;
+}
+
+void SlothCore::Start() {
+  if (running_) {
+    return;
+  }
+  running_ = true;
+  core_worker_->AddTask(boost::bind(&SlothCore::Run, this));
+}
+
+void SlothCore::Stop() {
+  running_ = false;
+}
 
 void SlothCore::Run() {
   while (running_) {
@@ -38,8 +64,35 @@ void SlothCore::Run() {
         HandleAppendEntry(data);
         break;
       case kElectionTimeout:
-        HandleElectionTimeout();
+        ElectionTimeoutData* data = reinterpret_cast<ElectionTimeoutData*>(event.data);
+        HandleElectionTimeout(data);
         break;
+      case kRequestVoteCallback:
+        VoteData* data = reinterpret_cast<VoteData*>(event.data);
+        HandleVote(data);
+        break;
+      case kVoteTimeout:
+        VoteTimeoutData* data = reinterpret_cast<VoteTimeoutData*>(event.data);
+        HandleWaitVoteTimeout(data);
+        break;
+    }
+  }
+}
+
+void SlothCore::HandleVote(VoteData* data) {
+  // the vote date has been expired
+  if (data->term_snapshot != current_term_) {
+    return;
+  }
+  // only candidate process vote from other node
+  if (role_ != kCandidate) {
+    return;
+  }
+  if (data->vote_granted) {
+    count.count += 1;
+    int32_t major_count = cluster_.size() / 2 +1;
+    if (count.count >= major_count) {
+      
     }
   }
 }
@@ -68,7 +121,33 @@ void SlothCore::ResetElectionTimeout() {
     vote_timeout_task_id_ = 0;
   }
   uint32_t timeout = GenRandTime();
-  election_timeout_task_id_ = time_worker_-DelayTask(boost::bind(&SlothCore::DispatchElectionTimeout, this, current_term_));
+  election_timeout_task_id_ = time_worker_->DelayTask(boost::bind(&SlothCore::DispatchElectionTimeout, this, current_term_));
+}
+
+void SlothCore::ResetVoteTimeout() {
+  if (vote_timeout_task_id_ > 0) {
+    time_worker_->CancelTask(election_timeout_task_id_, true);
+    vote_timeout_task_id_ = 0;
+  }
+  vote_timeout_task_id_ = time_worker_->DelayTask(boost::bind(&SlothCore::DispatchWaitVoteTimeout, this, current_term_));
+}
+
+void SlothCore::DispatchElectionTimeout(uint64_t term) {
+  ElectionTimeoutData* data = new ElectionTimeoutData();
+  data->term = term;
+  SlothEvent e;
+  e.data = data;
+  e.type = kElectionTimeout;
+  while(!queue_->push(e));
+}
+
+void SlothCore::DispatchWaitVoteTimeout(uint64_t term) {
+  VoteTimeoutData* data = new VoteTimeoutData();
+  data->term = term;
+  SlothEvent e;
+  e.data = data;
+  e.type = kVoteTimeout;
+  while(!queue_->push(e));
 }
 
 uint32_t SlothCore::GenRandTime() {
@@ -88,6 +167,15 @@ void SlothCore::HandleElectionTimeout(ElectionTimeoutData* data) {
   count.term = current_term_;
   // vote for myself
   count.count++;
+  std::vector<std::string>::iterator node_it = cluster_.begin();
+  int32_t count = -1;
+  for (; node_it !=  cluster_.end(); ++node_it) {
+    ++count;
+    if (id_ == count) {
+      continue;
+    }
+    SendVoteRequest(*node_it);
+  }
 }
 
 void SlothCore::SendVoteRequest(const std::string& endpoint) {
@@ -107,6 +195,27 @@ void SlothCore::SendVoteRequest(const std::string& endpoint) {
                         5, 0);
   delete other_node;
 }
+
+void SlothCore::SendVoteRequestCallback(uint64_t term,
+                                        const RequestVoteRequest* request,
+                                        RequestVoteResponse* response,
+                                        bool failed,
+                                        int error) {
+  if (failed) {
+    return;
+  }
+  VoteData* data = new VoteData();
+  data->term_snapshot = term;
+  data->term_from_node = response->term();
+  data->vote_granted = response->vote_granted();
+  delete resquest;
+  delete response;
+  SlothEvent e;
+  e.data = data;
+  e.type = kRequestVoteCallback;
+  while(!queue_->push(e));
+}
+
 
 void VoteCount::Reset() {
   term = 0;

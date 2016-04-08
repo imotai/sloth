@@ -11,6 +11,12 @@ enum RpcStatus {
   kRpcError = 3;
 }
 
+enum SlothNodeRole {
+  kCandidate = 0;
+  kFollower = 1;
+  kLeader = 2;
+}
+
 // request node to vote for the requestor
 message RequestVoteRequest {
   optional uint64 term = 1;
