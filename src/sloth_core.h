@@ -12,11 +12,12 @@ using ::baidu::common::ThreadPool;
 namespace sloth {
 
 enum SlothEventType {
+  // for follower that receives entry from master
   kAppendEntry = 0;
   kElectionTimeout = 1;
   kVoteTimeout = 2;
-
-  kAppendEntryCallback = 3;
+  // for leader that receives callback from follower or candidate
+  kSendAppendEntryCallback = 3;
   kRequestVoteCallback = 4;
 };
 
@@ -56,9 +57,16 @@ struct VoteData {
   // the term when candidate request a vote
   uint64_t term_snapshot;
   uint64_t term_from_node;
-  
   bool vote_granted;
 };
+
+// callback from follower or candidate
+struct SendAppendEntriesCallbackData {
+  uint64_t term_snapshot;
+  uint64_t term_from_node;
+  bool success;
+};
+
 // the core logic for raft 
 // all functions will be processed by one thread and no mutex lock
 class SlothCore {
@@ -117,6 +125,8 @@ private:
                                  AppendEntriesResponse* response,
                                  bool failed,
                                  int error);
+  // process append entry callback from followers and candidate
+  void HandleSendEntriesCallback(SendAppendEntriesCallbackData* data);
 private:
   uint64_t current_term_;
   SlothNodeRole role_;

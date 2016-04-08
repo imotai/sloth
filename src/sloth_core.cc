@@ -75,6 +75,10 @@ void SlothCore::Run() {
         VoteTimeoutData* data = reinterpret_cast<VoteTimeoutData*>(event.data);
         HandleWaitVoteTimeout(data);
         break;
+      case kSendAppendEntryCallback:
+        SendAppendEntriesCallbackData* data = reinterpret_cast<SendAppendEntriesCallbackData*>(event.data);
+        HandleSendEntriesCallback(data);
+        break;
     }
   }
 }
@@ -90,6 +94,18 @@ void SlothCore::StopCheckVoteTimeoutTask() {
   if (vote_timeout_task_id_ > 0) {
     time_worker_->CancelTask(election_timeout_task_id_, true);
     vote_timeout_task_id_ = 0;
+  }
+}
+
+void SlothCore::HandleSendEntriesCallback(SendAppendEntriesCallbackData* data) {
+  if (data->term_snapshot != current_term_) {
+    return;
+  }
+  // 
+  if (data->term_from_node > current_term_) {
+    role_ = kFollower;
+    ResetElectionTimeout();
+    current_term_ = data->term_from_node;
   }
 }
 
@@ -176,7 +192,20 @@ void SlothCore::SendAppendEntries(const std::string endpoint) {
 }
 
 void SlothCore::SendAppendEntriesCallback(uint64_t term,
-           )
+                                         const AppendEntriesRequest* request,
+                                         AppendEntriesResponse* response,
+                                         bool failed,
+                                         int error) {
+  SendAppendEntriesCallbackData* data = new SendAppendEntriesCallbackData();
+  data->term_from_node = response->term();
+  data->success = response->success();
+  data->term_snapshot = term;
+  SlothEvent e;
+  e.data = data;
+  e.type = kSendAppendEntryCallback;
+  while (!queue_->push(e));
+}
+
 uint32_t SlothCore::GenRandTime() {
   uint32_t offset = FLAGS_max_follower_elect_timeout - FLAGS_min_follower_elect_timeout;
   uint32_t timeout = FLAGS_min_follower_elect_timeout + rand() % offset;
@@ -203,6 +232,8 @@ void SlothCore::HandleElectionTimeout(ElectionTimeoutData* data) {
     }
     SendVoteRequest(*node_it);
   }
+  // add wait vote timeout task
+  ResetWaitVoteTimeout();
 }
 
 void SlothCore::SendVoteRequest(const std::string& endpoint) {
@@ -242,7 +273,6 @@ void SlothCore::SendVoteRequestCallback(uint64_t term,
   e.type = kRequestVoteCallback;
   while(!queue_->push(e));
 }
-
 
 void VoteCount::Reset() {
   term = 0;
