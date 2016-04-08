@@ -20,7 +20,7 @@ enum SlothNodeRole {
 // request node to vote for the requestor
 message RequestVoteRequest {
   optional uint64 term = 1;
-  optional string candidate_id = 2;
+  optional uint64 candidate_id = 2;
   optional uint64 last_log_index = 3;
   optional uint64 last_log_term = 4;
 }
@@ -40,7 +40,6 @@ message Entry {
 
 message AppendEntriesRequest {
   optional uint64 term = 1;
-  optional string leader_id = 2;
   optional uint64 pre_log_index = 3;
   optional uint64 pre_log_term = 4;
   repeated Entry entries = 5;

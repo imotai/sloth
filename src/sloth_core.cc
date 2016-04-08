@@ -60,25 +60,35 @@ void SlothCore::Run() {
     }
     switch (event.type) {
       case kAppendEntry:
-        AppendEntryData* data = reinterpret_cast<AppendEntryData*>(event.data);
-        HandleAppendEntry(data);
-        break;
+        {
+          AppendEntryData* data = reinterpret_cast<AppendEntryData*>(event.data);
+          HandleAppendEntry(data);
+          break;
+        }
       case kElectionTimeout:
-        ElectionTimeoutData* data = reinterpret_cast<ElectionTimeoutData*>(event.data);
-        HandleElectionTimeout(data);
-        break;
+        {
+          ElectionTimeoutData* data = reinterpret_cast<ElectionTimeoutData*>(event.data);
+          HandleElectionTimeout(data);
+          break;
+        }
       case kRequestVoteCallback:
-        VoteData* data = reinterpret_cast<VoteData*>(event.data);
-        HandleVote(data);
-        break;
+        {
+          VoteData* data = reinterpret_cast<VoteData*>(event.data);
+          HandleVote(data);
+          break;
+        }
       case kVoteTimeout:
-        VoteTimeoutData* data = reinterpret_cast<VoteTimeoutData*>(event.data);
-        HandleWaitVoteTimeout(data);
-        break;
+        {
+          VoteTimeoutData* data = reinterpret_cast<VoteTimeoutData*>(event.data);
+          HandleWaitVoteTimeout(data);
+          break;
+        }
       case kSendAppendEntryCallback:
-        SendAppendEntriesCallbackData* data = reinterpret_cast<SendAppendEntriesCallbackData*>(event.data);
-        HandleSendEntriesCallback(data);
-        break;
+        {
+          SendAppendEntriesCallbackData* data = reinterpret_cast<SendAppendEntriesCallbackData*>(event.data);
+          HandleSendEntriesCallback(data);
+          break;
+        }
     }
   }
 }
@@ -95,6 +105,10 @@ void SlothCore::StopCheckVoteTimeoutTask() {
     time_worker_->CancelTask(election_timeout_task_id_, true);
     vote_timeout_task_id_ = 0;
   }
+}
+
+void SlothCore::HandleWaitVoteTimeout(VoteTimeoutData* data) {
+
 }
 
 void SlothCore::HandleSendEntriesCallback(SendAppendEntriesCallbackData* data) {
@@ -147,12 +161,12 @@ void SlothCore::ResetElectionTimeout() {
   StopCheckElectionTimeoutTask();
   StopCheckVoteTimeoutTask();
   uint32_t timeout = GenRandTime();
-  election_timeout_task_id_ = time_worker_->DelayTask(boost::bind(&SlothCore::DispatchElectionTimeout, this, current_term_));
+  election_timeout_task_id_ = time_worker_->DelayTask(timeout, boost::bind(&SlothCore::DispatchElectionTimeout, this, current_term_));
 }
 
-void SlothCore::ResetVoteTimeout() {
+void SlothCore::ResetWaitVoteTimeout() {
   StopCheckVoteTimeoutTask();
-  vote_timeout_task_id_ = time_worker_->DelayTask(boost::bind(&SlothCore::DispatchWaitVoteTimeout, this, current_term_));
+  vote_timeout_task_id_ = time_worker_->DelayTask(FLAGS_wait_vote_back_timeout, boost::bind(&SlothCore::DispatchWaitVoteTimeout, this, current_term_));
 }
 
 void SlothCore::DispatchElectionTimeout(uint64_t term) {
@@ -175,15 +189,15 @@ void SlothCore::DispatchWaitVoteTimeout(uint64_t term) {
 
 void SlothCore::SendAppendEntries(const std::string endpoint) {
   SlothNode_Stub* other_node;
-  client_->GetStub(endpoint, &other_node);
+  rpc_client_->GetStub(endpoint, &other_node);
   AppendEntriesRequest* request = new AppendEntriesRequest();
   AppendEntriesResponse* response = new AppendEntriesResponse();
   request->set_term(current_term_);
-  request->set_leader_id(id_);
+  request->set_leader_index(id_);
   boost::function<void (const AppendEntriesRequest*, AppendEntriesResponse*, bool, int)> callback;
-  callback = boost::bind(&SlothNodeImpl::SendAppendEntriesCallback,
-                         this, _1, _2, _3, _4);
-  client_->AsyncRequest(other_node,
+  callback = boost::bind(&SlothCore::SendAppendEntriesCallback,
+                         this, current_term_, _1, _2, _3, _4);
+  rpc_client_->AsyncRequest(other_node,
                         &SlothNode_Stub::AppendEntries,
                         request, response,
                         callback,
@@ -242,9 +256,9 @@ void SlothCore::SendVoteRequest(const std::string& endpoint) {
   RequestVoteRequest* request = new RequestVoteRequest();
   RequestVoteResponse* response = new RequestVoteResponse();
   request->set_term(count.term);
-  request->set_candidate_id(endpoint_);
+  request->set_candidate_id(id_);
   boost::function<void (const RequestVoteRequest*, RequestVoteResponse*, bool, int)> callback;
-  callback = boost::bind(&SlothCore::SendVoteRequestCallback, this, endpoint, count.term,
+  callback = boost::bind(&SlothCore::SendVoteRequestCallback, this, count.term,
                          _1, _2, _3, _4);
   rpc_client_->AsyncRequest(other_node,
                         &SlothNode_Stub::RequestVote,
@@ -266,7 +280,7 @@ void SlothCore::SendVoteRequestCallback(uint64_t term,
   data->term_snapshot = term;
   data->term_from_node = response->term();
   data->vote_granted = response->vote_granted();
-  delete resquest;
+  delete request;
   delete response;
   SlothEvent e;
   e.data = data;

@@ -13,12 +13,12 @@ namespace sloth {
 
 enum SlothEventType {
   // for follower that receives entry from master
-  kAppendEntry = 0;
-  kElectionTimeout = 1;
-  kVoteTimeout = 2;
+  kAppendEntry = 0,
+  kElectionTimeout = 1,
+  kVoteTimeout = 2,
   // for leader that receives callback from follower or candidate
-  kSendAppendEntryCallback = 3;
-  kRequestVoteCallback = 4;
+  kSendAppendEntryCallback = 3,
+  kRequestVoteCallback = 4
 };
 
 struct SlothEvent {
