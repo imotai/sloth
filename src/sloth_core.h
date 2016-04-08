@@ -12,12 +12,15 @@ using ::baidu::common::ThreadPool;
 namespace sloth {
 
 enum SlothEventType {
-  kAppendEntry = 0;
-  kElectionTimeout = 1;
-  kVoteTimeout = 2;
-
-  kAppendEntryCallback = 3;
-  kRequestVoteCallback = 4;
+  // for follower that receives entry from master
+  kAppendEntry = 0,
+  kElectionTimeout = 1,
+  kVoteTimeout = 2,
+  // for leader that receives callback from follower or candidate
+  kSendAppendEntryCallback = 3,
+  kRequestVoteCallback = 4,
+  // candidate request a vote
+  kRequestVote = 5
 };
 
 struct SlothEvent {
@@ -42,13 +45,34 @@ struct AppendEntryData {
   response(response),done(done){}
 };
 
+struct RequestVoteData {
+  const RequestVoteRequest* request;
+  RequestVoteResponse* response;
+  Closure* done;
+};
+
 struct ElectionTimeoutData {
   // the term when bind function
-  int64_t term;
+  uint64_t term;
 };
 
 struct VoteTimeoutData {
-  int64_t term;
+  uint64_t term;
+};
+
+// the vote from other node
+struct VoteData {
+  // the term when candidate request a vote
+  uint64_t term_snapshot;
+  uint64_t term_from_node;
+  bool vote_granted;
+};
+
+// callback from follower or candidate
+struct SendAppendEntriesCallbackData {
+  uint64_t term_snapshot;
+  uint64_t term_from_node;
+  bool success;
 };
 
 // the core logic for raft 
@@ -60,15 +84,60 @@ public:
   ~SlothCore();
   bool Init();
   void Start();
-
+  void Stop();
+  void GetStatus(GetClusterStatusResponse* response);
 private:
   void Run();
   void HandleAppendEntry(AppendEntryData* data);
+  // send append entry to followers
+  void HandleSendEntry();
+  // process election timeout event
   void HandleElectionTimeout(ElectionTimeoutData* data);
+  // process wait vote timeout for candidate
+  void HandleWaitVoteTimeout(VoteTimeoutData* data);
+  // when receiving heart beat from leader,
+  // reset all timeout checker
   void ResetElectionTimeout();
+  // when request a vote , reset wait vote timeout checker
+  // this function can be invoked by candidate
+  void ResetWaitVoteTimeout();
+  // generate randome election timeout
   uint32_t GenRandTime();
+  // dispatch election timeout event 
+  // and put it to queue
   void DispatchElectionTimeout(uint64_t term);
+  // dispatch wait vote timeout event 
+  // and put it to queue
+  void DispatchWaitVoteTimeout(uint64_t term);
+  // leader send append or heart beat to follower
+  void DispatchReplicateLog(uint64_t term);
   void SendVoteRequest(const std::string& endpoint);
+  void SendVoteRequestCallback(uint64_t term,
+                               const RequestVoteRequest* request,
+                               RequestVoteResponse* response,
+                               bool failed,
+                               int error);
+  // process the vote for me from other node
+  void HandleVote(VoteData* data);
+  // when a node become a leader 
+  // stop check election timeout
+  void StopCheckElectionTimeoutTask();
+  // when a node become a leader or follower
+  // stop check vote timeout
+  void StopCheckVoteTimeoutTask();
+  // stop relicate log task
+  void StopReplicateLog();
+  void DoReplicateLog();
+  void SendAppendEntries(const std::string endpoint);
+  void SendAppendEntriesCallback(uint64_t term,
+                                 const AppendEntriesRequest* request,
+                                 AppendEntriesResponse* response,
+                                 bool failed,
+                                 int error);
+  // process append entry callback from followers and candidate
+  void HandleSendEntriesCallback(SendAppendEntriesCallbackData* data);
+  // process request vote from candidate
+  void HandleRequestVote(RequestVoteData* data);
 private:
   uint64_t current_term_;
   SlothNodeRole role_;
@@ -82,12 +151,14 @@ private:
   int64_t election_timeout_task_id_;
   // for candidate 
   int64_t vote_timeout_task_id_;
-  VoteCount count;
+  VoteCount count_;
   // for leader  dispatch append entry event
   ThreadPool* append_entry_worker_;
+  int64_t append_entry_task_id_;
 
   volatile bool running_;
   RpcClient* rpc_client_;
+
   // for node
   int32_t id_;
   int32_t leader_id_;
