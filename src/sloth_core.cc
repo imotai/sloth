@@ -79,6 +79,20 @@ void SlothCore::Run() {
   }
 }
 
+void SlothCore::StopCheckElectionTimeoutTask() {
+  if (election_timeout_task_id_ > 0) {
+    time_worker_->CancelTask(election_timeout_task_id_, true);
+    election_timeout_task_id_ = 0;
+  }
+}
+
+void SlothCore::StopCheckVoteTimeoutTask() {
+  if (vote_timeout_task_id_ > 0) {
+    time_worker_->CancelTask(election_timeout_task_id_, true);
+    vote_timeout_task_id_ = 0;
+  }
+}
+
 void SlothCore::HandleVote(VoteData* data) {
   // the vote date has been expired
   if (data->term_snapshot != current_term_) {
@@ -92,7 +106,9 @@ void SlothCore::HandleVote(VoteData* data) {
     count.count += 1;
     int32_t major_count = cluster_.size() / 2 +1;
     if (count.count >= major_count) {
-      
+      StopCheckVoteTimeoutTask();
+      StopCheckElectionTimeoutTask();
+      role_ = kLeader;
     }
   }
 }
@@ -112,23 +128,14 @@ void SlothCore::HandleAppendEntry(AppendEntryData* data) {
 }
 
 void SlothCore::ResetElectionTimeout() {
-  if (election_timeout_task_id_ > 0) {
-    time_worker_->CancelTask(election_timeout_task_id_, true);
-    election_timeout_task_id_ = 0;
-  }
-  if (vote_timeout_task_id_ > 0) {
-    time_worker_->CancelTask(election_timeout_task_id_, true);
-    vote_timeout_task_id_ = 0;
-  }
+  StopCheckElectionTimeoutTask();
+  StopCheckVoteTimeoutTask();
   uint32_t timeout = GenRandTime();
   election_timeout_task_id_ = time_worker_->DelayTask(boost::bind(&SlothCore::DispatchElectionTimeout, this, current_term_));
 }
 
 void SlothCore::ResetVoteTimeout() {
-  if (vote_timeout_task_id_ > 0) {
-    time_worker_->CancelTask(election_timeout_task_id_, true);
-    vote_timeout_task_id_ = 0;
-  }
+  StopCheckVoteTimeoutTask();
   vote_timeout_task_id_ = time_worker_->DelayTask(boost::bind(&SlothCore::DispatchWaitVoteTimeout, this, current_term_));
 }
 
@@ -150,6 +157,26 @@ void SlothCore::DispatchWaitVoteTimeout(uint64_t term) {
   while(!queue_->push(e));
 }
 
+void SlothCore::SendAppendEntries(const std::string endpoint) {
+  SlothNode_Stub* other_node;
+  client_->GetStub(endpoint, &other_node);
+  AppendEntriesRequest* request = new AppendEntriesRequest();
+  AppendEntriesResponse* response = new AppendEntriesResponse();
+  request->set_term(current_term_);
+  request->set_leader_id(id_);
+  boost::function<void (const AppendEntriesRequest*, AppendEntriesResponse*, bool, int)> callback;
+  callback = boost::bind(&SlothNodeImpl::SendAppendEntriesCallback,
+                         this, _1, _2, _3, _4);
+  client_->AsyncRequest(other_node,
+                        &SlothNode_Stub::AppendEntries,
+                        request, response,
+                        callback,
+                        5, 0);
+  delete other_node;
+}
+
+void SlothCore::SendAppendEntriesCallback(uint64_t term,
+           )
 uint32_t SlothCore::GenRandTime() {
   uint32_t offset = FLAGS_max_follower_elect_timeout - FLAGS_min_follower_elect_timeout;
   uint32_t timeout = FLAGS_min_follower_elect_timeout + rand() % offset;

@@ -109,6 +109,14 @@ private:
   // when a node become a leader or follower
   // stop check vote timeout
   void StopCheckVoteTimeoutTask();
+
+  void DoReplicateLog();
+  void SendAppendEntries(const std::string endpoint);
+  void SendAppendEntriesCallback(uint64_t term,
+                                 const AppendEntriesRequest* request,
+                                 AppendEntriesResponse* response,
+                                 bool failed,
+                                 int error);
 private:
   uint64_t current_term_;
   SlothNodeRole role_;
