@@ -2,8 +2,10 @@
 #define SLOTH_NODE_H
 
 #include <map>
+#include <boost/lockfree/queue.hpp>
 #include "proto/sloth_node.pb.h"
 #include "sloth_types.h"
+#include "sloth_core.h"
 #include "thread_pool.h"
 #include "rpc/rpc_client.h"
 #include "mutex.h"
@@ -42,7 +44,8 @@ public:
                         GetClusterStatusResponse* response,
                         Closure* done);
 private:
-
+  SlothCore* core_;
+  boost::lockfree::queue<SlothEvent>* queue_;
 };
 
 }

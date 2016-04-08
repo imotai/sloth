@@ -3,6 +3,8 @@
 #include <stdlib.h>
 #include <boost/algorithm/string.hpp>
 #include "gflags/gflags.h"
+#include "logging.h"
+#include "timer.h"
 
 DECLARE_string(node_list);
 DECLARE_int32(node_idx);
@@ -10,6 +12,8 @@ DECLARE_int32(max_follower_elect_timeout);
 DECLARE_int32(min_follower_elect_timeout);
 DECLARE_int32(replicate_log_interval);
 DECLARE_int32(wait_vote_back_timeout);
+
+using ::baidu::common::DEBUG;
 
 namespace sloth {
 
@@ -36,6 +40,10 @@ bool SlothCore::Init() {
     return false;
   }
   id_ = FLAGS_node_idx;
+  LOG(DEBUG, "init sloth core with id %d and endpoint %s",
+      id_,
+      cluster_[id_].c_str());
+  srand(::baidu::common::timer::get_micros());
   return true;
 }
 
@@ -43,8 +51,11 @@ void SlothCore::Start() {
   if (running_) {
     return;
   }
+  LOG(DEBUG, "start sloth core");
   running_ = true;
+  role_ = kFollower;
   core_worker_->AddTask(boost::bind(&SlothCore::Run, this));
+  ResetElectionTimeout();
 }
 
 void SlothCore::Stop() {
@@ -89,8 +100,24 @@ void SlothCore::Run() {
           HandleSendEntriesCallback(data);
           break;
         }
+      case kRequestVote:
+        {
+          RequestVoteData* data = reinterpret_cast<RequestVoteData*>(event.data);
+          HandleRequestVote(data);
+        }
     }
   }
+}
+
+void SlothCore::HandleRequestVote(RequestVoteData* data) {
+  if (data->request->term() <= current_term_) {
+    data->response->set_vote_granted(false);
+  }else {
+    data->response->set_vote_granted(true);
+  }
+  data->response->set_term(current_term_);
+  data->response->set_status(kRpcOk);
+  data->done->Run();
 }
 
 void SlothCore::StopCheckElectionTimeoutTask() {
@@ -121,15 +148,18 @@ void SlothCore::HandleSendEntriesCallback(SendAppendEntriesCallbackData* data) {
     ResetElectionTimeout();
     current_term_ = data->term_from_node;
   }
+  delete data;
 }
 
 void SlothCore::HandleVote(VoteData* data) {
   // the vote date has been expired
   if (data->term_snapshot != current_term_) {
+    delete data;
     return;
   }
   // only candidate process vote from other node
   if (role_ != kCandidate) {
+    delete data;
     return;
   }
   if (data->vote_granted) {
@@ -141,6 +171,7 @@ void SlothCore::HandleVote(VoteData* data) {
       role_ = kLeader;
     }
   }
+  delete data;
 }
 
 void SlothCore::HandleAppendEntry(AppendEntryData* data) {
@@ -155,6 +186,7 @@ void SlothCore::HandleAppendEntry(AppendEntryData* data) {
   data->response->set_term(current_term_);
   data->response->set_status(kRpcOk);
   data->done->Run();
+  delete data;
 }
 
 void SlothCore::ResetElectionTimeout() {
@@ -162,14 +194,20 @@ void SlothCore::ResetElectionTimeout() {
   StopCheckVoteTimeoutTask();
   uint32_t timeout = GenRandTime();
   election_timeout_task_id_ = time_worker_->DelayTask(timeout, boost::bind(&SlothCore::DispatchElectionTimeout, this, current_term_));
+  LOG(DEBUG, "reset election timeout %d with task id %ld",
+      timeout,
+      election_timeout_task_id_);
 }
 
 void SlothCore::ResetWaitVoteTimeout() {
   StopCheckVoteTimeoutTask();
   vote_timeout_task_id_ = time_worker_->DelayTask(FLAGS_wait_vote_back_timeout, boost::bind(&SlothCore::DispatchWaitVoteTimeout, this, current_term_));
+  LOG(DEBUG, "reset wait vote timeout with task id %ld",
+      vote_timeout_task_id_);
 }
 
 void SlothCore::DispatchElectionTimeout(uint64_t term) {
+  LOG(DEBUG, "dispatch election timeout event with term %ld", term);
   ElectionTimeoutData* data = new ElectionTimeoutData();
   data->term = term;
   SlothEvent e;
@@ -179,6 +217,7 @@ void SlothCore::DispatchElectionTimeout(uint64_t term) {
 }
 
 void SlothCore::DispatchWaitVoteTimeout(uint64_t term) {
+  LOG(DEBUG, "dispatch wait vote timeout event with term %ld", term);
   VoteTimeoutData* data = new VoteTimeoutData();
   data->term = term;
   SlothEvent e;
@@ -227,9 +266,17 @@ uint32_t SlothCore::GenRandTime() {
 }
 
 void SlothCore::HandleElectionTimeout(ElectionTimeoutData* data) {
+  LOG(DEBUG, "election timeout with term %d current_term %d", 
+      data->term,
+      current_term_);
   // the election timeout has been expired
   // do nothing
   if (data->term < current_term_) {
+    delete data;
+    return;
+  }
+  if (role_ == kLeader) {
+    delete data;
     return;
   }
   ++current_term_;
@@ -246,6 +293,7 @@ void SlothCore::HandleElectionTimeout(ElectionTimeoutData* data) {
     }
     SendVoteRequest(*node_it);
   }
+  delete data;
   // add wait vote timeout task
   ResetWaitVoteTimeout();
 }

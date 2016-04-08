@@ -9,33 +9,37 @@
 #include "logging.h"
 #include "timer.h"
 
-DECLARE_string(node_list);
-DECLARE_int32(node_idx);
-DECLARE_int32(max_follower_elect_timeout);
-DECLARE_int32(min_follower_elect_timeout);
-DECLARE_int32(replicate_log_interval);
-DECLARE_int32(wait_vote_back_timeout);
-
 using ::baidu::common::INFO;
 using ::baidu::common::WARNING;
 using ::baidu::common::DEBUG;
 
 namespace sloth {
 
-SlothNodeImpl::SlothNodeImpl() {
-
+SlothNodeImpl::SlothNodeImpl():core_(NULL), queue_(NULL){
+  queue_ = new boost::lockfree::queue<SlothEvent>(1024);
+  core_ = new SlothCore(queue_);
 }
 
 SlothNodeImpl::~SlothNodeImpl() {}
 
 bool SlothNodeImpl::Init() {
-  return false;
+  bool ok = core_->Init();
+  if (!ok) {
+    return false;
+  }
+  core_->Start();
+  return true;
 }
 
 void SlothNodeImpl::AppendEntries(RpcController* controller,
                                   const AppendEntriesRequest* request,
                                   AppendEntriesResponse* response,
                                   Closure* done) {
+  AppendEntryData* data = new AppendEntryData(request, response, done);
+  SlothEvent e;
+  e.data = data;
+  e.type = kAppendEntry;
+  while(!queue_->push(e));
 }
 
 
@@ -44,6 +48,14 @@ void SlothNodeImpl::RequestVote(RpcController* controller,
                                 const RequestVoteRequest* request,
                                 RequestVoteResponse* response,
                                 Closure* done) {
+  RequestVoteData* data = new RequestVoteData();
+  data->response = response;
+  data->request = request;
+  data->done = done;
+  SlothEvent e;
+  e.data = data;
+  e.type = kRequestVote;
+  while(!queue_->push(e));
 }
 
 void SlothNodeImpl::GetClusterStatus(RpcController* controller,

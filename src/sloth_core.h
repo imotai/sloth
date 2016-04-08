@@ -18,7 +18,9 @@ enum SlothEventType {
   kVoteTimeout = 2,
   // for leader that receives callback from follower or candidate
   kSendAppendEntryCallback = 3,
-  kRequestVoteCallback = 4
+  kRequestVoteCallback = 4,
+  // candidate request a vote
+  kRequestVote = 5
 };
 
 struct SlothEvent {
@@ -41,6 +43,12 @@ struct AppendEntryData {
                   AppendEntriesResponse* response,
                   Closure* done):request(request),
   response(response),done(done){}
+};
+
+struct RequestVoteData {
+  const RequestVoteRequest* request;
+  RequestVoteResponse* response;
+  Closure* done;
 };
 
 struct ElectionTimeoutData {
@@ -127,6 +135,8 @@ private:
                                  int error);
   // process append entry callback from followers and candidate
   void HandleSendEntriesCallback(SendAppendEntriesCallbackData* data);
+  // process request vote from candidate
+  void HandleRequestVote(RequestVoteData* data);
 private:
   uint64_t current_term_;
   SlothNodeRole role_;
