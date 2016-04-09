@@ -140,6 +140,7 @@ void SlothCore::HandleWaitVoteTimeout(VoteTimeoutData* data) {
 
 void SlothCore::HandleSendEntriesCallback(SendAppendEntriesCallbackData* data) {
   if (data->term_snapshot != current_term_) {
+    delete data;
     return;
   }
   // 
