@@ -25,3 +25,5 @@ sh show_cluster.sh
   4   10.0.2.15:8872  kFollower  10.0.2.15:8869  2 
 ```
 
+
+
