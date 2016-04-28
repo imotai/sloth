@@ -95,14 +95,13 @@ else
     echo "install snappy done"
 fi
 
-if [ -f "sofa-pbrpc-1.0.0.tar.gz" ]
+if [ -f "sofa-pbrpc" ]
 then
     echo "sofa exist"
 else
     # sofa-pbrpc
-    wget --no-check-certificate -O sofa-pbrpc-1.0.0.tar.gz https://github.com/BaiduPS/sofa-pbrpc/archive/v1.0.0.tar.gz
-    tar zxf sofa-pbrpc-1.0.0.tar.gz
-    cd sofa-pbrpc-1.0.0
+    git clone https://github.com/baidu/sofa-pbrpc.git
+    cd sofa-pbrpc
     sed -i '/BOOST_HEADER_DIR=/ d' depends.mk
     sed -i '/PROTOBUF_DIR=/ d' depends.mk
     sed -i '/SNAPPY_DIR=/ d' depends.mk
@@ -111,10 +110,11 @@ else
     echo "SNAPPY_DIR=${DEPS_PREFIX}" >> depends.mk
     echo "PREFIX=${DEPS_PREFIX}" >> depends.mk
     cd -
-    cd sofa-pbrpc-1.0.0/src
-    PROTOBUF_DIR=${DEPS_PREFIX} sh compile_proto.sh
+    cd sofa-pbrpc/src
+    export PROTOBUF_DIR=${DEPS_PREFIX}
+    sh compile_proto.sh ${DEPS_PREFIX}/include
     cd -
-    cd sofa-pbrpc-1.0.0
+    cd sofa-pbrpc
     make -j4 >/dev/null
     make install
     cd -
@@ -136,37 +136,15 @@ else
 fi
 
 
-if [ -d "ins" ]
+if [ -d "leveldb" ]
 then
-    echo "ins exist"
+  echo "leveldb exists"
 else
-    # ins
-    git clone https://github.com/fxsjy/ins
-    cd ins
-    sed -i 's/^SNAPPY_PATH=.*/SNAPPY_PATH=..\/..\/thirdparty/' Makefile
-    sed -i 's/^PROTOBUF_PATH=.*/PROTOBUF_PATH=..\/..\/thirdparty/' Makefile
-    sed -i 's/^PROTOC_PATH=.*/PROTOC_PATH=..\/..\/thirdparty\/bin/' Makefile
-    sed -i 's/^PROTOC=.*/PROTOC=..\/..\/thirdparty\/bin\/protoc/' Makefile
-    sed -i 's/^GFLAGS_PATH=.*/GFLAGS_PATH=..\/..\/thirdparty/' Makefile
-    sed -i 's/^GTEST_PATH=.*/GTEST_PATH=..\/..\/thirdparty/' Makefile
-    sed -i 's/^PREFIX=.*/PREFIX=..\/..\/thirdparty/' Makefile
-    export PATH=${DEPS_PREFIX}/bin:$PATH
-    export BOOST_PATH=${DEPS_PREFIX}/boost_1_57_0
-    export PBRPC_PATH=${DEPS_PREFIX}/
-    make -j4 >/dev/null
-    make -j4 install_sdk >/dev/null
-    cd -
-fi
-
-if [ -f "yaml-cpp-release-0.5.3.tar.gz" ]
-then
-  echo "yaml cpp exists"
-else
-  wget -O yaml-cpp-release-0.5.3.tar.gz https://github.com/jbeder/yaml-cpp/archive/release-0.5.3.tar.gz
-  tar -zxvf yaml-cpp-release-0.5.3.tar.gz >/dev/null
-  cd yaml-cpp-release-0.5.3
-  cmake -DBOOST_INCLUDEDIR=${DEPS_PREFIX}/boost_1_57_0 -DCMAKE_INSTALL_PREFIX=${DEPS_PREFIX}  -DBUILD_SHARED_LIBS=OFF >/dev/null
-  make -j8 >/dev/null && make install
+  git clone https://github.com/google/leveldb.git
+  cd leveldb
+  make >/dev/null
+  cp -rf include/* ${DEPS_PREFIX}/include
+  cp -rf out-static/libleveldb.a ${DEPS_PREFIX}/lib
   cd -
 fi
 

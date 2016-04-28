@@ -4,6 +4,7 @@
 #include "proto/sloth_node.pb.h"
 #include "thread_pool.h"
 #include "rpc/rpc_client.h"
+#include "binlogger.h"
 
 using ::google::protobuf::RpcController;
 using ::google::protobuf::Closure;
@@ -163,6 +164,9 @@ private:
   int32_t id_;
   int32_t leader_id_;
   std::vector<std::string> cluster_;
+
+  BinLogger* bin_logger_;
+
 };
 
 }

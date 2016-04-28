@@ -4,27 +4,25 @@
 #include <string>
 #include <stdint.h>
 #include "leveldb/db.h"
+#include "proto/sloth_node.pb.h"
 
-namespace raft {
-
-struct LogEntry {
-  uint64_t term;
-  uint64_t log_index;
-  std::string key;
-  std::string value;
-};
+namespace sloth {
 
 class BinLogger {
 
 public:
-  BinLogger();
+  BinLogger(const std::string& db_path);
   ~BinLogger();
+  bool Recover();
   // append log and return the log index
-  uint64_t Append(const LogEntry& log);
+  uint64_t Append(const Entry& log);
   // get log by log index
-  bool GetLog(uint64_t index, LogEntry* log);
+  bool GetLog(uint64_t index, Entry* log);
+
 private:
+  std::string db_path_;
   leveldb::DB* db_;
+  uint64_t size_;
 };
 
 }

@@ -8,6 +8,7 @@
 #include "timer.h"
 
 DECLARE_string(node_list);
+DECLARE_string(binlogger_db_path);
 DECLARE_int32(node_idx);
 DECLARE_int32(max_follower_elect_timeout);
 DECLARE_int32(min_follower_elect_timeout);
@@ -23,11 +24,13 @@ SlothCore::SlothCore(boost::lockfree::queue<SlothEvent>* queue):current_term_(1)
   time_worker_(NULL),election_timeout_task_id_(0),
   vote_timeout_task_id_(0),count_(),append_entry_worker_(NULL),
   append_entry_task_id_(0),running_(false),
-  rpc_client_(NULL), id_(-1), leader_id_(-1), cluster_(){
+  rpc_client_(NULL), id_(-1), leader_id_(-1), cluster_(),
+  bin_logger_(NULL){
   core_worker_ = new ThreadPool(1);
   time_worker_ = new ThreadPool(3);
   append_entry_worker_ = new ThreadPool(5);
   rpc_client_ = new RpcClient();
+  bin_logger_ = new BinLogger(FLAGS_binlogger_db_path);
 }
 
 SlothCore::~SlothCore() {}
@@ -45,6 +48,10 @@ bool SlothCore::Init() {
       id_,
       cluster_[id_].c_str());
   srand(::baidu::common::timer::get_micros());
+  bool recover_ok = bin_logger_->Recover();
+  if (!recover_ok) {
+    return false;
+  }
   return true;
 }
 
