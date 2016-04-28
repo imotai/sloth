@@ -18,7 +18,7 @@ BinLogger::~BinLogger() {}
 
 bool BinLogger::Recover() {
   leveldb::Options options;
-  //options.cache = leveldb::NewLRUCache(100 * 1048576);
+  options.block_cache = leveldb::NewLRUCache(100 * 1024 * 1024);
   options.create_if_missing = true;
   leveldb::Status status = leveldb::DB::Open(options, db_path_, &db_);
   if (status.ok()) {
