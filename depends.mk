@@ -60,7 +60,7 @@ DEPS_LDPATH = -L$(SOFA_PBRPC_LIBDIR) -L$(PROTOBUF_LIBDIR) \
       			  -L$(COMMON_LIBDIR)
 
 DEPS_LDFLAGS = -lins_sdk -lsofa-pbrpc -lprotobuf  \
-               -lgflags  -lcommon -lsnappy -lyaml-cpp -lgtest
+               -lgflags  -lcommon -lsnappy -lyaml-cpp -lgtest -lleveldb
 
 
 

@@ -1,4 +1,4 @@
-#include "performance/perf_client.h"
+#include "performance/benchmark_dqs.h"
 
 
 #include <signal.h>
@@ -17,8 +17,8 @@ static void SignalIntHandler(int /*sig*/){
 
 
 void StartPerf() {
-  dqs::PerfClient test;
-  test.Start();
+  ::dqs::BenchMark bench;
+  bench.Start();
   signal(SIGINT, SignalIntHandler);
   signal(SIGTERM, SignalIntHandler);
   while (!s_quit) {
