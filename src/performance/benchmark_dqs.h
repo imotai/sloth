@@ -32,6 +32,7 @@ private:
   ::baidu::common::ThreadPool* pool_;
   ::baidu::common::Counter counter_;
   int32_t produce_turn_;
+  int64_t gen_key_turn_;
 };
 
 }

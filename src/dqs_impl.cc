@@ -30,6 +30,7 @@ void DqsImpl::PutDelayMsg(RpcController* controller,
   std::string key = FLAGS_dqs_root_path + "/" + request->queue() +
                     "/" + boost::lexical_cast<std::string>(::baidu::common::timer::get_micros());
   ::galaxy::ins::sdk::SDKError err;
+  int64_t now = ::baidu::common::timer::get_micros();
   bool ok = ins_->Put(key, request->value(), &err);
   if (!ok) {
     LOG(WARNING, "fail to put key %s", key.c_str());
@@ -37,8 +38,9 @@ void DqsImpl::PutDelayMsg(RpcController* controller,
     done->Run();
     return;
   }
+  int64_t consume = ::baidu::common::timer::get_micros() - now;
   //TODO add time consume log
-  LOG(INFO, "put key %s successfully", key.c_str());
+  LOG(INFO, "put key %s successfully consume %.4f ms", key.c_str(), consume/1000.0);
   response->set_status(kRpcOk);
   done->Run();
 }
