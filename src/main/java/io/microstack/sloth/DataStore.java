@@ -9,6 +9,10 @@ import org.springframework.stereotype.Service;
 
 import javax.annotation.PostConstruct;
 import javax.annotation.PreDestroy;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -50,6 +54,23 @@ public class DataStore {
         commitIdx.set(logIdx);
         batch.put(COMMIT_KEY.getBytes(), Longs.toByteArray(logIdx));
         batch.put(userKey, value);
+        db.write(woptions, batch);
+    }
+
+    public void batchWrite(TreeMap<Long, Entry> enties) throws RocksDBException {
+        if (enties.isEmpty()) {
+            return;
+        }
+        Iterator<Map.Entry<Long, Entry>> it = enties.entrySet().iterator();
+        WriteBatch batch = new WriteBatch();
+        Long commitIdxLocal = 0l;
+        while (it.hasNext()) {
+            Map.Entry<Long, Entry> entry = it.next();
+            commitIdxLocal = entry.getKey();
+            batch.put(entry.getValue().getKey().getBytes(), entry.getValue().getValue().toByteArray());
+        }
+        batch.put(COMMIT_KEY.getBytes(), Longs.toByteArray(commitIdxLocal));
+        commitIdx.set(commitIdxLocal);
         db.write(woptions, batch);
     }
 

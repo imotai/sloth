@@ -34,6 +34,7 @@ public class Binlogger {
     private AtomicLong preLogTerm = new AtomicLong(0);
     private Object tx = new Object();
     private WriteOptions woptions = new WriteOptions();
+
     @PostConstruct
     public void init() throws Exception {
         Options dbOptions = new Options().setCreateIfMissing(true);
@@ -43,17 +44,19 @@ public class Binlogger {
     }
 
     private void initLogIndex() throws InvalidProtocolBufferException {
-        RocksIterator it = db.newIterator();
-        it.seekToLast();
-        if (!it.isValid()) {
-            preLogIndex.set(0);
-        } else {
-            String key = new String(it.key());
-            preLogIndex.set(Long.parseLong(key.replace(BINLOGGER_PREFIX, "")));
-            Entry entry = Entry.parseFrom(it.value());
-            preLogTerm.set(entry.getTerm());
+        synchronized (tx) {
+            RocksIterator it = db.newIterator();
+            it.seekToLast();
+            if (!it.isValid()) {
+                preLogIndex.set(0);
+            } else {
+                String key = new String(it.key());
+                preLogIndex.set(Long.parseLong(key.replace(BINLOGGER_PREFIX, "")));
+                Entry entry = Entry.parseFrom(it.value());
+                preLogTerm.set(entry.getTerm());
+            }
+            logger.info("init binlogger with log index {} and term {}", preLogIndex.get(), preLogTerm.get());
         }
-        logger.info("init binlogger with log index {} and term {}", preLogIndex.get(), preLogTerm.get());
     }
 
 
@@ -62,12 +65,28 @@ public class Binlogger {
         synchronized (tx) {
             index = preLogIndex.incrementAndGet();
             preLogTerm.set(entry.getTerm());
+            String key = BINLOGGER_PREFIX + index;
+            woptions.setSync(false);
+            db.put(woptions, key.getBytes(), entry.toByteArray());
+            return index;
         }
-        String key = BINLOGGER_PREFIX + index;
-        WriteOptions wopt = new WriteOptions();
-        wopt.setSync(false);
-        db.put(wopt, key.getBytes(), entry.toByteArray());
-        return index;
+    }
+
+    public List<Long> batchWrite(List<Entry> entries) throws RocksDBException {
+        List<Long> ids = new ArrayList<Long>();
+        synchronized (tx) {
+            WriteBatch batch = new WriteBatch();
+            for (Entry entry : entries) {
+                long index = preLogIndex.incrementAndGet();
+                ids.add(index);
+                entry.toBuilder().setLogIndex(index);
+                preLogTerm.set(entry.getTerm());
+                String key = BINLOGGER_PREFIX + index;
+                batch.put(key.getBytes(), entry.toByteArray());
+            }
+            db.write(woptions, batch);
+        }
+        return ids;
     }
 
 
@@ -123,8 +142,9 @@ public class Binlogger {
 
     @PreDestroy
     public void close() {
-        db.close();
+        synchronized (tx) {
+            db.close();
+        }
     }
-
 
 }

@@ -28,7 +28,15 @@ public class SlothOptions {
     private String binlogPath;
 
     private String dataPath;
+    private int httpPort;
 
+    public int getHttpPort() {
+        return httpPort;
+    }
+
+    public void setHttpPort(int httpPort) {
+        this.httpPort = httpPort;
+    }
 
     public String getBinlogPath() {
         return binlogPath;

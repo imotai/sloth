@@ -109,4 +109,5 @@ public class ReplicateLogStatus {
     public void setMatched(boolean matched) {
         this.matched = matched;
     }
+
 }

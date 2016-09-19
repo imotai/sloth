@@ -10,6 +10,10 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
+import java.util.concurrent.Executor;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.atomic.AtomicInteger;
 
 @Service
 public class SlothNodeImpl extends SlothNodeGrpc.SlothNodeImplBase {
@@ -19,10 +23,11 @@ public class SlothNodeImpl extends SlothNodeGrpc.SlothNodeImplBase {
     @Autowired
     private RaftCore core;
     private Server server;
+    private Executor executor = Executors.newScheduledThreadPool(10, new NodeThreadFactory("slothnode"));
 
     public void start() throws IOException {
         core.start();
-        server = ServerBuilder.forPort(options.getEndpoints().get(options.getIdx()).getPort()).addService(this).build();
+        server = ServerBuilder.forPort(options.getEndpoints().get(options.getIdx()).getPort()).addService(this).executor(executor).build();
         server.start();
         logger.info("start sloth node with port {} successfully", options.getEndpoints().get(options.getIdx()).getPort());
     }
@@ -50,6 +55,22 @@ public class SlothNodeImpl extends SlothNodeGrpc.SlothNodeImplBase {
                                  StreamObserver<GetClusterStatusResponse> responseObserver) {
         // TODO Auto-generated method stub
         super.getClusterStatus(request, responseObserver);
+    }
+
+    class NodeThreadFactory implements ThreadFactory {
+        private AtomicInteger counter = new AtomicInteger(0);
+        private String prefix;
+
+        public NodeThreadFactory(String prefix) {
+            this.prefix = prefix;
+        }
+
+        public Thread newThread(Runnable r) {
+            int index = counter.incrementAndGet();
+            StringBuilder name = new StringBuilder();
+            name.append(prefix).append("-").append(options.getIdx()).append("-").append(index);
+            return new Thread(r, name.toString());
+        }
     }
 
 }

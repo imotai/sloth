@@ -16,6 +16,8 @@
 		<property name="replicateLogInterval" value="100"></property>
 		<property name="endpointStr" value="127.0.0.1:9527,127.0.0.1:9528,127.0.0.1:9529,127.0.0.1:9530,127.0.0.1:9531"></property>
 		<property name="binlogPath" value="/tmp/binlogger3"></property>
+		<property name="dataPath" value="/tmp/data3"></property>
+		<property name="httpPort" value="8530"></property>
 	</bean>
 	
 </beans>

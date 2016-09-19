@@ -1,7 +1,10 @@
 package io.microstack.sloth;
 
+import com.google.common.collect.Collections2;
 import com.google.common.net.HostAndPort;
+import com.google.protobuf.InvalidProtocolBufferException;
 import io.grpc.stub.StreamObserver;
+import org.rocksdb.RocksDBException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -11,6 +14,7 @@ import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
 
 @Service
@@ -20,17 +24,18 @@ public class RaftCore {
     private final static Logger event = LoggerFactory.getLogger("event");
     private final static Logger status = LoggerFactory.getLogger("status");
     private final ReentrantLock mutex = new ReentrantLock();
+    private final Condition writeCond = mutex.newCondition();
     @Autowired
     private SlothOptions options;
     private int leaderIdx;
     private long currentTerm;
     private SlothNodeRole role;
     private boolean running;
-    private Map<String, SlothStub> stubs = new TreeMap<String, SlothStub>();
     private Map<HostAndPort, ReplicateLogStatus> logStatus = new HashMap<HostAndPort, ReplicateLogStatus>();
-    // executor for checking timeout
-    private ScheduledExecutorService schedPool = Executors.newScheduledThreadPool(2, new RaftThreadFactory("schedpool"));
-    private Executor directPool = Executors.newFixedThreadPool(4, new RaftThreadFactory("directpool"));
+    // executor for checking timeouto
+    private ScheduledExecutorService schedPool = Executors.newScheduledThreadPool(2, new RaftThreadFactory("raftcore.sched"));
+    private Executor directPool = Executors.newFixedThreadPool(4, new RaftThreadFactory("raftcore.direct"));
+    private Executor applyLogPool = Executors.newFixedThreadPool(1, new RaftThreadFactory("raftcore.applylog"));
     @Autowired
     private SlothStubPool slothStubPool;
     private ScheduledFuture<?> electionTimeoutHandle = null;
@@ -44,7 +49,7 @@ public class RaftCore {
     private DataStore dataStore;
     private AtomicBoolean electing = new AtomicBoolean(false);
     private Map<Long, Integer> votedFor = new HashMap<Long, Integer>();
-
+    private List<WriteTask> tasks = new LinkedList<WriteTask>();
     public RaftCore() {
         currentTerm = 0;
     }
@@ -124,7 +129,7 @@ public class RaftCore {
         }
     }
 
-    public void appendLogEntries(AppendEntriesRequest request,
+    public void appendLogEntries(final AppendEntriesRequest request,
                                  StreamObserver<AppendEntriesResponse> responseObserver) {
         try {
             mutex.lock();
@@ -135,6 +140,7 @@ public class RaftCore {
             // 3. reset election timeout check
             // 4. change role to Follower
             // 5. update term to latest
+            logger.info("[AppendEntry] from leader {} with term {} and my term {}", request.getLeaderIdx(), request.getTerm(), currentTerm);
             if (request.getTerm() > currentTerm) {
                 SlothNodeRole oldRole = role;
                 leaderIdx = (int) request.getLeaderIdx();
@@ -142,17 +148,33 @@ public class RaftCore {
                 success = true;
                 logger.info("[AppendEntry] become follower for term update to {}", currentTerm);
                 event.info("change role from {} to {} with term {}", oldRole, role, currentTerm);
-            }
-
-            if (request.getTerm() == currentTerm
-                    && role == SlothNodeRole.kFollower) {
+            }else if (request.getTerm() == currentTerm) {
                 success = true;
+                leaderIdx = (int)request.getLeaderIdx();
+                if (role == SlothNodeRole.kCandidate) {
+                    becomeToFollower(leaderIdx, request.getTerm());
+                } else {
+                    role = SlothNodeRole.kFollower;
+                    resetElectionTimeout();
+                    success = handleMatchIndexOnFollower(request.getPreLogIndex(), request.getPreLogTerm());
+                    if (success) {
+                        success = handleAppendLog(request);
+                        HostAndPort endpoint = options.getEndpoints().get(options.getIdx());
+                        final ReplicateLogStatus status = logStatus.get(endpoint);
+                        if (success) {
+                            applyLogPool.execute(new Runnable() {
+                                @Override
+                                public void run() {
+                                    bgApplyLog(status.getCommitIndex() +1 , request.getLeaderCommitIdx());
+                                }
+                            });
+                        }
+                    }
+                }
+                request.toBuilder().setTerm(currentTerm);
+            }else {
+                success = false;
             }
-
-            if (role == SlothNodeRole.kFollower) {
-                resetElectionTimeout();
-            }
-            success = handleMatchIndexOnFollower(request.getPreLogIndex(), request.getPreLogTerm());
             AppendEntriesResponse response = AppendEntriesResponse.newBuilder()
                     .setTerm(currentTerm).setSuccess(success).setStatus(RpcStatus.kRpcOk).build();
             responseObserver.onNext(response);
@@ -160,6 +182,252 @@ public class RaftCore {
         } finally {
             mutex.unlock();
         }
+    }
+
+    private boolean handleAppendLog(AppendEntriesRequest request) {
+        assert mutex.isHeldByCurrentThread();
+        List<Entry> entries = request.getEntriesList();
+        if (entries.size() <= 0) {
+            return  true;
+        }
+        try {
+            List<Long> ids = binlogger.batchWrite(entries);
+            assert ids.size() == entries.size();
+            HostAndPort endpoint = options.getEndpoints().get(options.getIdx());
+            ReplicateLogStatus status = logStatus.get(endpoint);
+            status.setLastLogIndex(ids.get(ids.size() - 1));
+            status.setLastLogTerm(request.getTerm());
+            return true;
+        } catch (RocksDBException e) {
+            logger.error("fail to batch write entry", e);
+            return false;
+        }
+    }
+
+    private void bgApplyLog(long commitFrom, long commitTo) {
+        if (commitFrom > commitTo) {
+            return;
+        }
+        try {
+            List<Entry> entries = binlogger.batchGet(commitFrom, commitTo);
+            TreeMap<Long, Entry> datas = new TreeMap<Long, Entry>();
+            for (Entry e : entries) {
+                datas.put(e.getLogIndex(), e);
+            }
+            //TODO retry
+            dataStore.batchWrite(datas);
+            mutex.lock();
+            try {
+                HostAndPort endpoint = options.getEndpoints().get(options.getIdx());
+                ReplicateLogStatus status = logStatus.get(endpoint);
+                status.setCommitIndex(commitTo);
+            } finally {
+                mutex.unlock();
+            }
+        } catch (InvalidProtocolBufferException e) {
+            logger.error("fail to batch get from binlogger ", e);
+        } catch (RocksDBException e) {
+            logger.error("fail to batch write", e);
+        }
+
+    }
+
+    public void put(PutRequest request, StreamObserver<PutResponse> responseObserver) {
+        mutex.lock();
+        try {
+            WriteTask task = new WriteTask(request, responseObserver, writeCond);
+            tasks.add(task);
+            while (tasks.size() > 0 && !task.isDone() && !task.equals(tasks.get(0))) {
+                try {
+                    task.getCondition().wait();
+                } catch (InterruptedException e) {
+                    logger.error("fail to wait task", e);
+                }
+            }
+
+            if (task.isDone()) {
+                return;
+            }
+            TreeMap<Long, WriteTask> entries = batchWriteLog();
+            scheduleReplicateLog(entries);
+        }catch (Exception e) {
+
+        }finally {
+            mutex.unlock();
+        }
+    }
+
+    private TreeMap<Long, WriteTask> batchWriteLog() throws RocksDBException {
+        assert mutex.isHeldByCurrentThread();
+        List<Entry> entries = new ArrayList<Entry>();
+        for (WriteTask task : tasks) {
+            Entry entry = Entry.newBuilder().setTerm(currentTerm).setValue(task.getRequest().getValue()).setKey(task.getRequest().getKey()).build();
+            entries.add(entry);
+            task.setEntry(entry);
+        }
+        TreeMap<Long, WriteTask> datas = new TreeMap<Long, WriteTask>();
+        List<Long> ids = null;
+        try {
+            ids = binlogger.batchWrite(entries);
+        } catch (Exception e) {
+            ids = null;
+            logger.error("fail to batch write log", e);
+        }
+        if (ids == null) {
+            for (int i = 0; i < tasks.size(); i++) {
+                PutResponse response = PutResponse.newBuilder().setStatus(RpcStatus.kRpcError).build();
+                tasks.get(i).setDone(true);
+                StreamObserver<PutResponse> observer = tasks.get(i).getResponseObserver();
+                observer.onNext(response);
+                observer.onCompleted();
+            }
+            tasks.clear();
+            writeCond.notify();
+            return datas;
+        }else {
+            HostAndPort endpoint = options.getEndpoints().get(options.getIdx());
+            ReplicateLogStatus status = logStatus.get(endpoint);
+            status.setLastLogTerm(currentTerm);
+            for (int i = 0; i < ids.size() && i < tasks.size(); i++) {
+                tasks.get(i).setIndex(ids.get(i));
+                status.setLastLogIndex(ids.get(i));
+                datas.put(ids.get(i), tasks.get(i));
+            }
+            return datas;
+        }
+    }
+
+    private void scheduleReplicateLog(TreeMap<Long, WriteTask> batchTask) {
+        assert mutex.isHeldByCurrentThread();
+        if (role != SlothNodeRole.kLeader) {
+            return;
+        }
+        HostAndPort leaderEndpoint = options.getEndpoints().get(options.getIdx());
+        ReplicateLogStatus leaderStatus = logStatus.get(leaderEndpoint);
+        long preLogIndex = leaderStatus.getLastLogIndex();
+        long preLogTerm = leaderStatus.getLastLogTerm();
+        long commitIdx = dataStore.getCommitIdx();
+        int major = options.getEndpoints().size() / 2 + 1;
+        final CountDownLatch finishLatch = new CountDownLatch(major);
+        for (int i = 0; i < options.getEndpoints().size(); i++) {
+            if (i == options.getIdx()) {
+                continue;
+            }
+            HostAndPort endpoint = options.getEndpoints().get(i);
+            final ReplicateLogStatus status = logStatus.get(endpoint);
+            if (status == null
+                    || !status.isMatched()) {
+                logger.warn("[ReplicateLog]follower with endpoint {} is not ready");
+                continue;
+            }
+            SlothStub slothStub = slothStubPool.getByEndpoint(endpoint.toString());
+            // replicate log
+            if (leaderStatus.getLastLogIndex() > status.getLastLogIndex()) {
+                long indexFrom = status.getLastLogIndex() + 1;
+                long indexTo = leaderStatus.getLastLogIndex();
+                try {
+                    List<Entry> entries = binlogger.batchGet(indexFrom, indexTo);
+                    AppendEntriesRequest.Builder builder = AppendEntriesRequest.newBuilder();
+                    for (Entry entry : entries) {
+                        builder.addEntries(entry);
+                    }
+                    builder.setTerm(currentTerm);
+                    builder.setLeaderIdx(leaderIdx);
+                    builder.setPreLogIndex(status.getLastLogIndex());
+                    builder.setPreLogTerm(status.getLastLogTerm());
+                    builder.setLeaderCommitIdx(dataStore.getCommitIdx());
+                    final AppendEntriesRequest request = builder.build();
+                    StreamObserver<AppendEntriesResponse> observer = new StreamObserver<AppendEntriesResponse>() {
+                        @Override
+                        public void onNext(AppendEntriesResponse value) {
+                            if (value.getSuccess()) {
+                                status.setLastLogTerm(request.getPreLogTerm());
+                                status.setLastLogIndex(request.getPreLogIndex());
+                                status.setCommitIndex(request.getLeaderCommitIdx());
+                                finishLatch.countDown();
+                            }
+                        }
+
+                        @Override
+                        public void onError(Throwable t) {
+                            logger.error("fail to get append entry", t);
+                        }
+
+                        @Override
+                        public void onCompleted() {
+                        }
+                    };
+                } catch (InvalidProtocolBufferException e) {
+                    logger.error("fail batch get from binlogger from {} to {}", indexFrom, indexTo, e);
+                }
+            }
+        }
+        while (finishLatch.getCount() > 0) {
+            try {
+                finishLatch.await(100, TimeUnit.MILLISECONDS);
+            } catch (InterruptedException e) {
+                logger.error("fail to wait count latch");
+            }
+        }
+        logger.info("[ReplicateLog] move log index to {} with term {}", preLogIndex, preLogTerm);
+        scheduleCommit(preLogIndex, preLogTerm, commitIdx, batchTask);
+    }
+
+    /**
+     * commit to local datastore
+     * */
+    private void scheduleCommit(long preLogIndex, long preLogTerm , long commitIdx,
+                                TreeMap<Long, WriteTask> entries) {
+        assert mutex.isHeldByCurrentThread();
+        if (commitIdx >= preLogIndex) {
+            return;
+        }
+        long commitFrom = commitIdx + 1;
+        long commitTo = preLogIndex;
+        TreeMap<Long, Entry> batch = new TreeMap<Long, Entry>();
+        for (long index  = commitFrom; index <= commitTo; ++index) {
+            if(entries.containsKey(index)) {
+                batch.put(index, entries.get(index).getEntry());
+            }else {
+                try {
+                    batch.put(index, binlogger.get(index));
+                } catch (Exception e) {
+                    logger.error("fail to get log with {}", index, e);
+                }
+            }
+        }
+        try {
+            dataStore.batchWrite(batch);
+            Iterator<Map.Entry<Long, WriteTask>> it = entries.entrySet().iterator();
+            PutResponse response = PutResponse.newBuilder().setStatus(RpcStatus.kRpcOk).build();
+            while (it.hasNext()) {
+                Map.Entry<Long, WriteTask> entry = it.next();
+                entry.getValue().setDone(true);
+                StreamObserver<PutResponse> observer = entry.getValue().getResponseObserver();
+                observer.onNext(response);
+                observer.onCompleted();
+            }
+            tasks.clear();
+            writeCond.notify();
+            logger.info("[CommitLog] commit log with index {}", commitTo);
+            HostAndPort leaderEndpoint = options.getEndpoints().get(options.getIdx());
+            ReplicateLogStatus leaderStatus = logStatus.get(leaderEndpoint);
+            leaderStatus.setCommitIndex(commitTo);
+        } catch (RocksDBException e) {
+            logger.error("fail batch write data store",e);
+            Iterator<Map.Entry<Long, WriteTask>> it = entries.entrySet().iterator();
+            PutResponse response = PutResponse.newBuilder().setStatus(RpcStatus.kRpcError).build();
+            while (it.hasNext()) {
+                Map.Entry<Long, WriteTask> entry = it.next();
+                entry.getValue().setDone(true);
+                StreamObserver<PutResponse> observer = entry.getValue().getResponseObserver();
+                observer.onNext(response);
+                observer.onCompleted();
+            }
+            tasks.clear();
+            writeCond.notify();
+        }
+
     }
 
 
@@ -174,7 +442,7 @@ public class RaftCore {
             mutex.lock();
             currentTerm++;
             voteCount = 1;
-            logger.info("election timeout with new term {}", currentTerm);
+            logger.info("election timeout with new term {} ", currentTerm);
             role = SlothNodeRole.kCandidate;
             RequestVoteRequest request = RequestVoteRequest.newBuilder().setTerm(currentTerm).setCandidateId(options.getIdx()).build();
             mutex.unlock();
@@ -196,9 +464,7 @@ public class RaftCore {
                     }
 
                     @Override
-                    public void onCompleted() {
-
-                    }
+                    public void onCompleted() {}
                 };
                 slothStub.getStub().requestVote(request, observer);
             }
@@ -270,9 +536,12 @@ public class RaftCore {
         AppendEntriesRequest request = AppendEntriesRequest.newBuilder()
                 .setLeaderIdx(options.getIdx()).setTerm(currentTerm).build();
         mutex.unlock();
-        Iterator<String> it = stubs.keySet().iterator();
-        while (it.hasNext()) {
-            SlothStub slothStub = slothStubPool.getByEndpoint(it.next());
+        for (int i = 0; i < options.getEndpoints().size(); i++) {
+            HostAndPort endpoint = options.getEndpoints().get(i);
+            if (i == options.getIdx()) {
+                continue;
+            }
+            SlothStub slothStub = slothStubPool.getByEndpoint(endpoint.toString());
             StreamObserver<AppendEntriesResponse> observer = new StreamObserver<AppendEntriesResponse>() {
                 @Override
                 public void onNext(AppendEntriesResponse value) {
@@ -285,12 +554,12 @@ public class RaftCore {
                 }
 
                 @Override
-                public void onCompleted() {}
+                public void onCompleted() {
+                }
             };
             slothStub.getStub().appendEntries(request, observer);
         }
         mutex.lock();
-
         heartBeatHandle = schedPool.schedule(new Runnable() {
             @Override
             public void run() {
@@ -313,7 +582,6 @@ public class RaftCore {
         }
         stopElectionTimeoutCheck();
         long timeout = genElectionTimeout();
-        logger.info("election time out {}", timeout);
         electionTimeoutHandle = schedPool.schedule(new Runnable() {
             @Override
             public void run() {
@@ -355,7 +623,7 @@ public class RaftCore {
     private void stopElectionTimeoutCheck() {
         assert mutex.isHeldByCurrentThread();
         if (electionTimeoutHandle != null) {
-            electionTimeoutHandle.cancel(false);
+            electionTimeoutHandle.cancel(true);
             electionTimeoutHandle = null;
         }
     }
@@ -363,7 +631,7 @@ public class RaftCore {
     private void stopVoteTimeoutCheck() {
         assert mutex.isHeldByCurrentThread();
         if (requestVoteTimeoutHandle != null) {
-            requestVoteTimeoutHandle.cancel(false);
+            requestVoteTimeoutHandle.cancel(true);
             requestVoteTimeoutHandle = null;
         }
     }
@@ -371,7 +639,7 @@ public class RaftCore {
     private void stopHeartBeat() {
         assert mutex.isHeldByCurrentThread();
         if (heartBeatHandle != null) {
-            heartBeatHandle.cancel(false);
+            heartBeatHandle.cancel(true);
             heartBeatHandle = null;
         }
     }
@@ -380,27 +648,33 @@ public class RaftCore {
         assert mutex.isHeldByCurrentThread();
         logger.info("[Vote] I am the leader with term {} with idx {} ", currentTerm, options.getIdx());
         role = SlothNodeRole.kLeader;
+        resetHeartBeat();
         leaderIdx = options.getIdx();
-        HostAndPort leaderEndpoint = options.getEndpoints().get(options.getIdx());
-        ReplicateLogStatus leaderStatus = null;
         for (int i = 0; i < options.getEndpoints().size(); i++) {
-            HostAndPort endpoint = options.getEndpoints().get(i);
+            final HostAndPort endpoint = options.getEndpoints().get(i);
             ReplicateLogStatus status = ReplicateLogStatus.newStatus(endpoint);
             logStatus.put(endpoint, status);
             if (i == options.getIdx()) {
                 status.setLastLogTerm(binlogger.getPreLogTerm());
                 status.setLastLogIndex(binlogger.getPreLogIndex());
                 status.setCommitIndex(dataStore.getCommitIdx());
+            } else {
+                directPool.execute(new Runnable() {
+                    public void run() {
+                        matchLogIndexTask(endpoint, binlogger.getPreLogIndex(), binlogger.getPreLogTerm(),
+                                currentTerm);
+                    }
+                });
             }
         }
         stopElectionTimeoutCheck();
         stopVoteTimeoutCheck();
-        resetHeartBeat();
+
     }
 
     public void becomeToFollower(int leaderIdx, long newTerm) {
         assert mutex.isHeldByCurrentThread();
-        logger.info("I am a follower with leader idx {}", leaderIdx);
+        logger.info("I am a follower with leader idx {} and term {}", leaderIdx, newTerm);
         this.leaderIdx = leaderIdx;
         role = SlothNodeRole.kFollower;
         HostAndPort endpoint = options.getEndpoints().get(options.getIdx());
@@ -408,6 +682,7 @@ public class RaftCore {
         status.setLastLogTerm(binlogger.getPreLogTerm());
         status.setLastLogIndex(binlogger.getPreLogIndex());
         status.setCommitIndex(dataStore.getCommitIdx());
+        status.setLastApplied(dataStore.getCommitIdx());
         logStatus.put(endpoint, status);
         stopHeartBeat();
         stopVoteTimeoutCheck();
@@ -416,17 +691,24 @@ public class RaftCore {
     }
 
     private void matchLogIndexTask(final HostAndPort follower,
-                                     final long preLogIndex, final long preLogTerm) {
+                                   final long preLogIndex, final long preLogTerm,
+                                   final long myTerm) {
         mutex.lock();
         try {
+            if (role != SlothNodeRole.kLeader
+                    || myTerm != currentTerm) {
+                return;
+            }
             ReplicateLogStatus status = logStatus.get(follower);
             if (status.isMatched()) {
                 return;
             }
-
             AppendEntriesRequest request = AppendEntriesRequest.newBuilder()
-                                                 .setLeaderIdx(options.getIdx())
-                    .setLeaderCommitIdx(dataStore.getCommitIdx()).setPreLogIndex(preLogIndex).setPreLogTerm(preLogTerm)
+                    .setLeaderIdx(options.getIdx())
+                    .setTerm(currentTerm)
+                    .setLeaderCommitIdx(dataStore.getCommitIdx())
+                    .setPreLogIndex(preLogIndex)
+                    .setPreLogTerm(preLogTerm)
                     .build();
             SlothStub stub = slothStubPool.getByEndpoint(follower.toString());
             StreamObserver<AppendEntriesResponse> observer = new StreamObserver<AppendEntriesResponse>() {
@@ -438,7 +720,7 @@ public class RaftCore {
                     }
                     try {
                         Entry entry = binlogger.get(preLogIndex - 1);
-                        matchLogIndexTask(follower, entry.getLogIndex(), entry.getTerm());
+                        matchLogIndexTask(follower, entry.getLogIndex(), entry.getTerm(), myTerm);
                     } catch (Exception e) {
                         logger.error("fail to find entry with log index {}", preLogIndex - 1);
                     }
@@ -471,6 +753,7 @@ public class RaftCore {
             status.setMatched(true);
             status.setLastLogIndex(preLogIndex);
             status.setLastLogTerm(preLogTerm);
+            status.setLastApplied(preLogIndex);
         } finally {
             mutex.unlock();
         }

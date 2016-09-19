@@ -67,6 +67,13 @@
     <artifactId>rocksdbjni</artifactId>
     <version>4.5.1</version>
 </dependency>
+		<!-- https://mvnrepository.com/artifact/org.eclipse.jetty/jetty-server -->
+		<dependency>
+			<groupId>org.eclipse.jetty</groupId>
+			<artifactId>jetty-server</artifactId>
+			<version>9.3.8.v20160314</version>
+		</dependency>
+
 	</dependencies>
 	
 	<build>

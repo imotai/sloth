@@ -14,8 +14,10 @@
 		<property name="voteTimeout" value="400"></property>
 		<property name="callbackPoolSize" value="10"></property>
 		<property name="replicateLogInterval" value="100"></property>
+		<property name="dataPath" value="/tmp/data1"></property>
 		<property name="endpointStr" value="127.0.0.1:9527,127.0.0.1:9528,127.0.0.1:9529,127.0.0.1:9530,127.0.0.1:9531"></property>
 		<property name="binlogPath" value="/tmp/binlogger1"></property>
+		<property name="httpPort" value="8528"></property>
 	</bean>
 	
 </beans>

@@ -32,7 +32,7 @@ public class TestRaftCore {
 
 
     @Test
-    public void testAppendLog() {
+    public void testAppendLogToFollower() {
         RaftCore core = ctx.getBean(RaftCore.class);
         core.start();
         core.stopElection();

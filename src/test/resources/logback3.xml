@@ -16,7 +16,7 @@
 	<appender name="event"  class="ch.qos.logback.core.rolling.RollingFileAppender">
 		<rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
 			<!--日志文件输出的文件名-->
-			<FileNamePattern>./log/sloth-event0.log.%d{yyyy-MM-dd-HH}</FileNamePattern>
+			<FileNamePattern>./log/sloth-event3.log.%d{yyyy-MM-dd-HH}</FileNamePattern>
 			<!--日志文件保留天数-->
 			<MaxHistory>7</MaxHistory>
 			<cleanHistoryOnStart>true</cleanHistoryOnStart>
@@ -30,7 +30,7 @@
     <appender name="status" class="ch.qos.logback.core.rolling.RollingFileAppender">
          <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
             <!--日志文件输出的文件名-->
-            <FileNamePattern>./log/sloth-status0.log.%d{yyyy-MM-dd-HH}</FileNamePattern>
+            <FileNamePattern>./log/sloth-status3.log.%d{yyyy-MM-dd-HH}</FileNamePattern>
             <!--日志文件保留天数-->
             <MaxHistory>7</MaxHistory>
         </rollingPolicy>
@@ -43,7 +43,7 @@
     <appender name="log" class="ch.qos.logback.core.rolling.RollingFileAppender">
          <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
             <!--日志文件输出的文件名-->
-            <FileNamePattern>./log/sloth0.log.%d{yyyy-MM-dd-HH}</FileNamePattern>
+            <FileNamePattern>./log/sloth3.log.%d{yyyy-MM-dd-HH}</FileNamePattern>
             <!--日志文件保留天数-->
             <MaxHistory>7</MaxHistory>
         </rollingPolicy>
