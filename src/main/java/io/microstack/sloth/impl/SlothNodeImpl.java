@@ -46,8 +46,7 @@ public class SlothNodeImpl extends SlothNodeGrpc.SlothNodeImplBase {
 
     @Override
     public void put(PutRequest request, StreamObserver<PutResponse> responseObserver) {
-        // TODO Auto-generated method stub
-        super.put(request, responseObserver);
+        core.put(request, responseObserver);
     }
 
     @Override

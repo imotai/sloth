@@ -33,7 +33,7 @@ public class RaftCore {
     private boolean running;
     private Map<HostAndPort, ReplicateLogStatus> logStatus = new HashMap<HostAndPort, ReplicateLogStatus>();
     // executor for checking timeouto
-    private ScheduledExecutorService schedPool = Executors.newScheduledThreadPool(2, new RaftThreadFactory("raftcore.sched"));
+    private ScheduledExecutorService schedPool = Executors.newScheduledThreadPool(8, new RaftThreadFactory("raftcore.sched"));
     private Executor directPool = Executors.newFixedThreadPool(4, new RaftThreadFactory("raftcore.direct"));
     private Executor applyLogPool = Executors.newFixedThreadPool(1, new RaftThreadFactory("raftcore.applylog"));
     @Autowired
@@ -140,14 +140,14 @@ public class RaftCore {
             // 3. reset election timeout check
             // 4. change role to Follower
             // 5. update term to latest
-            logger.info("[AppendEntry] from leader {} with term {} and my term {}", request.getLeaderIdx(), request.getTerm(), currentTerm);
+            logger.debug("[AppendEntry] from leader {} with term {} and my term {}", request.getLeaderIdx(), request.getTerm(), currentTerm);
             if (request.getTerm() > currentTerm) {
                 SlothNodeRole oldRole = role;
                 leaderIdx = (int) request.getLeaderIdx();
                 becomeToFollower(leaderIdx, request.getTerm());
                 success = true;
                 logger.info("[AppendEntry] become follower for term update to {}", currentTerm);
-                event.info("change role from {} to {} with term {}", oldRole, role, currentTerm);
+                event.debug("change role from {} to {} with term {}", oldRole, role, currentTerm);
             }else if (request.getTerm() == currentTerm) {
                 success = true;
                 leaderIdx = (int)request.getLeaderIdx();
@@ -157,7 +157,8 @@ public class RaftCore {
                     role = SlothNodeRole.kFollower;
                     resetElectionTimeout();
                     success = handleMatchIndexOnFollower(request.getPreLogIndex(), request.getPreLogTerm());
-                    if (success) {
+                    if (success && request.getEntriesList() != null
+                            && request.getEntriesList().size() > 0) {
                         success = handleAppendLog(request);
                         HostAndPort endpoint = options.getEndpoints().get(options.getIdx());
                         final ReplicateLogStatus status = logStatus.get(endpoint);
@@ -187,16 +188,17 @@ public class RaftCore {
     private boolean handleAppendLog(AppendEntriesRequest request) {
         assert mutex.isHeldByCurrentThread();
         List<Entry> entries = request.getEntriesList();
-        if (entries.size() <= 0) {
+        if (entries == null || entries.size() <= 0) {
             return  true;
         }
+        HostAndPort endpoint = options.getEndpoints().get(options.getIdx());
+        ReplicateLogStatus status = logStatus.get(endpoint);
         try {
             List<Long> ids = binlogger.batchWrite(entries);
             assert ids.size() == entries.size();
-            HostAndPort endpoint = options.getEndpoints().get(options.getIdx());
-            ReplicateLogStatus status = logStatus.get(endpoint);
             status.setLastLogIndex(ids.get(ids.size() - 1));
             status.setLastLogTerm(request.getTerm());
+            logger.info("[AppendLog] append log to index {}", status.getLastLogIndex());
             return true;
         } catch (RocksDBException e) {
             logger.error("fail to batch write entry", e);
@@ -224,6 +226,7 @@ public class RaftCore {
             } finally {
                 mutex.unlock();
             }
+            logger.info("[BgApplyLog] apply log to {}", commitTo);
         } catch (InvalidProtocolBufferException e) {
             logger.error("fail to batch get from binlogger ", e);
         } catch (RocksDBException e) {
@@ -317,7 +320,7 @@ public class RaftCore {
             final ReplicateLogStatus status = logStatus.get(endpoint);
             if (status == null
                     || !status.isMatched()) {
-                logger.warn("[ReplicateLog]follower with endpoint {} is not ready");
+                logger.warn("[ReplicateLog]follower with endpoint {} is not ready", endpoint);
                 continue;
             }
             SlothStub slothStub = slothStubPool.getByEndpoint(endpoint.toString());
@@ -357,9 +360,12 @@ public class RaftCore {
                         public void onCompleted() {
                         }
                     };
+                    slothStub.getStub().appendEntries(request, observer);
                 } catch (InvalidProtocolBufferException e) {
                     logger.error("fail batch get from binlogger from {} to {}", indexFrom, indexTo, e);
                 }
+            }else {
+                finishLatch.countDown();
             }
         }
         while (finishLatch.getCount() > 0) {
@@ -729,6 +735,12 @@ public class RaftCore {
                 @Override
                 public void onError(Throwable t) {
                     logger.error("fail to get append entry", t);
+                    schedPool.schedule(new Runnable() {
+                        @Override
+                        public void run() {
+                            matchLogIndexTask(follower, preLogIndex, preLogTerm, myTerm);
+                        }
+                    }, 100, TimeUnit.MILLISECONDS);
                 }
 
                 @Override
@@ -769,14 +781,14 @@ public class RaftCore {
             ReplicateLogStatus status = logStatus.get(endpoint);
             // log mismatch
             if (preLogIndex > status.getLastLogIndex()) {
-                logger.info("[LogMatch] log {} from leader is mismatch with my log {}",
+                logger.debug("[LogMatch] log {} from leader is mismatch with my log {}",
                         preLogIndex, status.getLastLogIndex());
                 return false;
             }
             // check the latest log in follower
             if (status.getLastLogIndex() == preLogIndex
                     && status.getLastLogTerm() == preLogTerm) {
-                logger.info("[LogMatch] log is matched with leader index {} term {}",
+                logger.debug("[LogMatch] log is matched with leader index {} term {}",
                         preLogIndex, preLogTerm);
                 return true;
             }
