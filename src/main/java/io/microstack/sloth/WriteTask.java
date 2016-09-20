@@ -4,7 +4,6 @@ import io.grpc.stub.StreamObserver;
 
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.Condition;
-import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * Created by imotai on 16/9/19.
@@ -22,6 +21,7 @@ public class WriteTask {
     private long syncLogConsumed;
     private long commitToLocalConsumed;
     private long waitToWrite;
+
     public WriteTask(PutRequest request, StreamObserver<PutResponse> responseObserver, Condition condition) {
         this.request = request;
         this.responseObserver = responseObserver;
@@ -71,6 +71,7 @@ public class WriteTask {
     public void startWriteLog() {
         writeLogConsumed = System.currentTimeMillis();
     }
+
     public void endWriteLog() {
         writeLogConsumed = System.currentTimeMillis() - writeLogConsumed;
     }

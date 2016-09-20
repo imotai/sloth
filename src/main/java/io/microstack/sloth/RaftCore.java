@@ -1,6 +1,5 @@
 package io.microstack.sloth;
 
-import com.google.common.collect.Collections2;
 import com.google.common.net.HostAndPort;
 import com.google.protobuf.InvalidProtocolBufferException;
 import io.grpc.stub.StreamObserver;
@@ -14,7 +13,6 @@ import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -51,6 +49,7 @@ public class RaftCore {
     private AtomicBoolean electing = new AtomicBoolean(false);
     private Map<Long, Integer> votedFor = new HashMap<Long, Integer>();
     private List<WriteTask> tasks = new LinkedList<WriteTask>();
+
     public RaftCore() {
         currentTerm = 0;
     }
@@ -149,9 +148,9 @@ public class RaftCore {
                 success = true;
                 logger.info("[AppendEntry] become follower for term update to {}", currentTerm);
                 event.debug("change role from {} to {} with term {}", oldRole, role, currentTerm);
-            }else if (request.getTerm() == currentTerm) {
+            } else if (request.getTerm() == currentTerm) {
                 success = true;
-                leaderIdx = (int)request.getLeaderIdx();
+                leaderIdx = (int) request.getLeaderIdx();
                 if (role == SlothNodeRole.kCandidate) {
                     becomeToFollower(leaderIdx, request.getTerm());
                 } else {
@@ -160,7 +159,8 @@ public class RaftCore {
                     // skip heartbeat
                     if (request.getLeaderCommitIdx() >= 0) {
                         success = handleMatchIndexOnFollower(request.getPreLogIndex(), request.getPreLogTerm());
-                        if (success && request.getEntriesList() != null
+                        if (success
+                                && request.getEntriesList() != null
                                 && request.getEntriesList().size() > 0) {
                             success = handleAppendLog(request);
                             HostAndPort endpoint = options.getEndpoints().get(options.getIdx());
@@ -169,7 +169,7 @@ public class RaftCore {
                                 applyLogPool.execute(new Runnable() {
                                     @Override
                                     public void run() {
-                                        bgApplyLog(status.getCommitIndex() +1 , request.getLeaderCommitIdx());
+                                        bgApplyLog(status.getCommitIndex() + 1, request.getLeaderCommitIdx());
                                     }
                                 });
                             }
@@ -177,7 +177,7 @@ public class RaftCore {
                     }
                 }
                 request.toBuilder().setTerm(currentTerm);
-            }else {
+            } else {
                 success = false;
             }
             AppendEntriesResponse response = AppendEntriesResponse.newBuilder()
@@ -193,7 +193,7 @@ public class RaftCore {
         assert mutex.isHeldByCurrentThread();
         List<Entry> entries = request.getEntriesList();
         if (entries == null || entries.size() <= 0) {
-            return  true;
+            return true;
         }
         HostAndPort endpoint = options.getEndpoints().get(options.getIdx());
         ReplicateLogStatus status = logStatus.get(endpoint);
@@ -211,7 +211,7 @@ public class RaftCore {
     }
 
     private void bgApplyLog(long commitFrom, long commitTo) {
-        if (commitFrom > commitTo) {
+        if (commitFrom >= commitTo) {
             return;
         }
         try {
@@ -236,7 +236,6 @@ public class RaftCore {
         } catch (RocksDBException e) {
             logger.error("fail to batch write", e);
         }
-
     }
 
     public void put(PutRequest request, StreamObserver<PutResponse> responseObserver) {
@@ -260,9 +259,9 @@ public class RaftCore {
             task.endWaitToWrite();
             TreeMap<Long, WriteTask> entries = batchWriteLog();
             scheduleReplicateLog(entries);
-        }catch (Exception e) {
+        } catch (Exception e) {
 
-        }finally {
+        } finally {
             mutex.unlock();
         }
     }
@@ -294,7 +293,7 @@ public class RaftCore {
             tasks.clear();
             writeCond.notify();
             return datas;
-        }else {
+        } else {
             HostAndPort endpoint = options.getEndpoints().get(options.getIdx());
             ReplicateLogStatus status = logStatus.get(endpoint);
             status.setLastLogTerm(currentTerm);
@@ -368,6 +367,7 @@ public class RaftCore {
                             }
 
                         }
+
                         @Override
                         public void onError(Throwable t) {
                             logger.error("fail to get append entry {} ", endpoint, t);
@@ -382,7 +382,7 @@ public class RaftCore {
                 } catch (InvalidProtocolBufferException e) {
                     logger.error("fail batch get from binlogger from {} to {}", indexFrom, indexTo, e);
                 }
-            }else {
+            } else {
                 finishLatch.countDown();
             }
         }
@@ -403,8 +403,8 @@ public class RaftCore {
 
     /**
      * commit to local datastore
-     * */
-    private void scheduleCommit(long preLogIndex, long preLogTerm , long commitIdx,
+     */
+    private void scheduleCommit(long preLogIndex, long preLogTerm, long commitIdx,
                                 TreeMap<Long, WriteTask> entries) {
         assert mutex.isHeldByCurrentThread();
         if (commitIdx >= preLogIndex) {
@@ -413,11 +413,11 @@ public class RaftCore {
         long commitFrom = commitIdx + 1;
         long commitTo = preLogIndex;
         TreeMap<Long, Entry> batch = new TreeMap<Long, Entry>();
-        for (long index  = commitFrom; index <= commitTo; ++index) {
-            if(entries.containsKey(index)) {
+        for (long index = commitFrom; index <= commitTo; ++index) {
+            if (entries.containsKey(index)) {
                 entries.get(index).startCommit();
                 batch.put(index, entries.get(index).getEntry());
-            }else {
+            } else {
                 try {
                     batch.put(index, binlogger.get(index));
                 } catch (Exception e) {
@@ -450,7 +450,7 @@ public class RaftCore {
             leaderStatus.setCommitIndex(commitTo);
             writeCond.notify();
         } catch (RocksDBException e) {
-            logger.error("fail batch write data store",e);
+            logger.error("fail batch write data store", e);
             Iterator<Map.Entry<Long, WriteTask>> it = entries.entrySet().iterator();
             PutResponse response = PutResponse.newBuilder().setStatus(RpcStatus.kRpcError).build();
             while (it.hasNext()) {
@@ -500,7 +500,8 @@ public class RaftCore {
                     }
 
                     @Override
-                    public void onCompleted() {}
+                    public void onCompleted() {
+                    }
                 };
                 slothStub.getStub().requestVote(request, observer);
             }
@@ -558,7 +559,7 @@ public class RaftCore {
             if (value.getTerm() > currentTerm) {
                 becomeToFollower(-1, value.getTerm());
                 logger.info("[AppendEntry] become follower for term update to {}", currentTerm);
-            }else if (value.getSuccess()){
+            } else if (value.getSuccess()) {
                 final ReplicateLogStatus status = logStatus.get(endpoint);
                 if (status != null
                         && status.isMatched()
@@ -600,7 +601,7 @@ public class RaftCore {
                 builder.setPreLogTerm(status.getLastLogTerm());
                 builder.setPreLogIndex(status.getLastLogIndex());
                 version = status.getVersion();
-            }else {
+            } else {
                 version = -1;
             }
             SlothStub slothStub = slothStubPool.getByEndpoint(endpoint.toString());
@@ -854,7 +855,7 @@ public class RaftCore {
                     logger.info("[LogMatch] clean binlogger from index 1");
                     binlogger.removeLog(1);
                     return true;
-                }else {
+                } else {
                     Entry entry = binlogger.get(preLogIndex);
                     if (entry.getTerm() == preLogTerm) {
                         logger.info("[LogMatch] clean binlogger from index {}", preLogIndex + 1);

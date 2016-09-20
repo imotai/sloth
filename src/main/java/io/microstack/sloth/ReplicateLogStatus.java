@@ -18,6 +18,7 @@ public class ReplicateLogStatus {
     private Map<HostAndPort, Long> matchIndex = new HashMap<HostAndPort, Long>();
     private boolean matched = false;
     private Long version = 0l;
+
     public ReplicateLogStatus() {
 
     }
@@ -39,7 +40,7 @@ public class ReplicateLogStatus {
         version++;
     }
 
-    public long getVersion () {
+    public long getVersion() {
         return version;
     }
 

@@ -24,7 +24,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class RpcSlothStubPoolImpl implements SlothStubPool {
     private final static Logger logger = LoggerFactory.getLogger(RpcSlothStubPoolImpl.class);
     private Map<String, SlothStub> stubs = new TreeMap<String, SlothStub>();
-    private Executor callbackPool ;
+    private Executor callbackPool;
     @Autowired
     private SlothOptions options;
 
@@ -32,6 +32,7 @@ public class RpcSlothStubPoolImpl implements SlothStubPool {
     public void init() {
         callbackPool = Executors.newFixedThreadPool(10, new CallbackThreadFactory("callback"));
     }
+
     @Override
     public synchronized SlothStub getByEndpoint(String endpoint) {
         if (stubs.containsKey(endpoint)) {

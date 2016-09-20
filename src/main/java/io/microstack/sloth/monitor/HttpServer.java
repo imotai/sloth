@@ -18,6 +18,7 @@ public class HttpServer {
     @Autowired
     private HttpUi ui;
     private Server server;
+
     @PostConstruct
     public void boot() throws Exception {
         server = new Server(options.getHttpPort());
