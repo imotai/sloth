@@ -66,6 +66,10 @@ public class RaftCore {
         this.slothStubPool = slothStubPool;
     }
 
+    public int getLeaderIdx() {
+        return leaderIdx;
+    }
+
     public void start() {
         try {
             mutex.lock();
