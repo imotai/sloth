@@ -18,10 +18,77 @@ public class WriteTask {
     private long index = -1;
     private AtomicInteger count = new AtomicInteger(0);
     private Entry entry;
+    private long writeLogConsumed;
+    private long syncLogConsumed;
+    private long commitToLocalConsumed;
+    private long waitToWrite;
     public WriteTask(PutRequest request, StreamObserver<PutResponse> responseObserver, Condition condition) {
         this.request = request;
         this.responseObserver = responseObserver;
         this.condition = condition;
+    }
+
+    public long getWaitToWrite() {
+        return waitToWrite;
+    }
+
+    public void setWaitToWrite(long waitToWrite) {
+        this.waitToWrite = waitToWrite;
+    }
+
+    public void startWaitToWrite() {
+        waitToWrite = System.currentTimeMillis();
+    }
+
+    public void endWaitToWrite() {
+        waitToWrite = System.currentTimeMillis() - waitToWrite;
+    }
+
+    public long getWriteLogConsumed() {
+        return writeLogConsumed;
+    }
+
+    public void setWriteLogConsumed(long writeLogConsumed) {
+        this.writeLogConsumed = writeLogConsumed;
+    }
+
+    public long getSyncLogConsumed() {
+        return syncLogConsumed;
+    }
+
+    public void setSyncLogConsumed(long syncLogConsumed) {
+        this.syncLogConsumed = syncLogConsumed;
+    }
+
+    public long getCommitToLocalConsumed() {
+        return commitToLocalConsumed;
+    }
+
+    public void setCommitToLocalConsumed(long commitToLocalConsumed) {
+        this.commitToLocalConsumed = commitToLocalConsumed;
+    }
+
+    public void startWriteLog() {
+        writeLogConsumed = System.currentTimeMillis();
+    }
+    public void endWriteLog() {
+        writeLogConsumed = System.currentTimeMillis() - writeLogConsumed;
+    }
+
+    public void startSyncLog() {
+        syncLogConsumed = System.currentTimeMillis();
+    }
+
+    public void endSyncLog() {
+        syncLogConsumed = System.currentTimeMillis() - syncLogConsumed;
+    }
+
+    public void startCommit() {
+        commitToLocalConsumed = System.currentTimeMillis();
+    }
+
+    public void endCommit() {
+        commitToLocalConsumed = System.currentTimeMillis() - commitToLocalConsumed;
     }
 
     public Entry getEntry() {

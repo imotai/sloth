@@ -14,6 +14,7 @@ import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -156,19 +157,22 @@ public class RaftCore {
                 } else {
                     role = SlothNodeRole.kFollower;
                     resetElectionTimeout();
-                    success = handleMatchIndexOnFollower(request.getPreLogIndex(), request.getPreLogTerm());
-                    if (success && request.getEntriesList() != null
-                            && request.getEntriesList().size() > 0) {
-                        success = handleAppendLog(request);
-                        HostAndPort endpoint = options.getEndpoints().get(options.getIdx());
-                        final ReplicateLogStatus status = logStatus.get(endpoint);
-                        if (success) {
-                            applyLogPool.execute(new Runnable() {
-                                @Override
-                                public void run() {
-                                    bgApplyLog(status.getCommitIndex() +1 , request.getLeaderCommitIdx());
-                                }
-                            });
+                    // skip heartbeat
+                    if (request.getLeaderCommitIdx() >= 0) {
+                        success = handleMatchIndexOnFollower(request.getPreLogIndex(), request.getPreLogTerm());
+                        if (success && request.getEntriesList() != null
+                                && request.getEntriesList().size() > 0) {
+                            success = handleAppendLog(request);
+                            HostAndPort endpoint = options.getEndpoints().get(options.getIdx());
+                            final ReplicateLogStatus status = logStatus.get(endpoint);
+                            if (success && request.getLeaderCommitIdx() > status.getCommitIndex()) {
+                                applyLogPool.execute(new Runnable() {
+                                    @Override
+                                    public void run() {
+                                        bgApplyLog(status.getCommitIndex() +1 , request.getLeaderCommitIdx());
+                                    }
+                                });
+                            }
                         }
                     }
                 }
@@ -240,6 +244,8 @@ public class RaftCore {
         try {
             WriteTask task = new WriteTask(request, responseObserver, writeCond);
             tasks.add(task);
+            task.startWriteLog();
+            task.startWaitToWrite();
             while (tasks.size() > 0 && !task.isDone() && !task.equals(tasks.get(0))) {
                 try {
                     task.getCondition().wait();
@@ -251,6 +257,7 @@ public class RaftCore {
             if (task.isDone()) {
                 return;
             }
+            task.endWaitToWrite();
             TreeMap<Long, WriteTask> entries = batchWriteLog();
             scheduleReplicateLog(entries);
         }catch (Exception e) {
@@ -293,6 +300,7 @@ public class RaftCore {
             status.setLastLogTerm(currentTerm);
             for (int i = 0; i < ids.size() && i < tasks.size(); i++) {
                 tasks.get(i).setIndex(ids.get(i));
+                tasks.get(i).endWriteLog();
                 status.setLastLogIndex(ids.get(i));
                 datas.put(ids.get(i), tasks.get(i));
             }
@@ -300,10 +308,15 @@ public class RaftCore {
         }
     }
 
+
     private void scheduleReplicateLog(TreeMap<Long, WriteTask> batchTask) {
         assert mutex.isHeldByCurrentThread();
         if (role != SlothNodeRole.kLeader) {
             return;
+        }
+        Iterator<Map.Entry<Long, WriteTask>> it = batchTask.entrySet().iterator();
+        while (it.hasNext()) {
+            it.next().getValue().startSyncLog();
         }
         HostAndPort leaderEndpoint = options.getEndpoints().get(options.getIdx());
         ReplicateLogStatus leaderStatus = logStatus.get(leaderEndpoint);
@@ -311,12 +324,12 @@ public class RaftCore {
         long preLogTerm = leaderStatus.getLastLogTerm();
         long commitIdx = dataStore.getCommitIdx();
         int major = options.getEndpoints().size() / 2 + 1;
-        final CountDownLatch finishLatch = new CountDownLatch(major);
+        final CountDownLatch finishLatch = new CountDownLatch(major - 1);
         for (int i = 0; i < options.getEndpoints().size(); i++) {
             if (i == options.getIdx()) {
                 continue;
             }
-            HostAndPort endpoint = options.getEndpoints().get(i);
+            final HostAndPort endpoint = options.getEndpoints().get(i);
             final ReplicateLogStatus status = logStatus.get(endpoint);
             if (status == null
                     || !status.isMatched()) {
@@ -326,8 +339,8 @@ public class RaftCore {
             SlothStub slothStub = slothStubPool.getByEndpoint(endpoint.toString());
             // replicate log
             if (leaderStatus.getLastLogIndex() > status.getLastLogIndex()) {
-                long indexFrom = status.getLastLogIndex() + 1;
-                long indexTo = leaderStatus.getLastLogIndex();
+                final long indexFrom = status.getLastLogIndex() + 1;
+                final long indexTo = leaderStatus.getLastLogIndex();
                 try {
                     List<Entry> entries = binlogger.batchGet(indexFrom, indexTo);
                     AppendEntriesRequest.Builder builder = AppendEntriesRequest.newBuilder();
@@ -344,20 +357,25 @@ public class RaftCore {
                         @Override
                         public void onNext(AppendEntriesResponse value) {
                             if (value.getSuccess()) {
-                                status.setLastLogTerm(request.getPreLogTerm());
-                                status.setLastLogIndex(request.getPreLogIndex());
+                                // lock is held by main thread
                                 status.setCommitIndex(request.getLeaderCommitIdx());
+                                status.setLastLogTerm(currentTerm);
+                                status.setLastLogIndex(indexTo);
+                                status.incr();
+                                logger.info("[ReplicateLog] replicate log  {} from {} to {} ", endpoint, indexFrom,
+                                        indexTo);
                                 finishLatch.countDown();
                             }
-                        }
 
+                        }
                         @Override
                         public void onError(Throwable t) {
-                            logger.error("fail to get append entry", t);
+                            logger.error("fail to get append entry {} ", endpoint, t);
                         }
 
                         @Override
                         public void onCompleted() {
+
                         }
                     };
                     slothStub.getStub().appendEntries(request, observer);
@@ -374,6 +392,10 @@ public class RaftCore {
             } catch (InterruptedException e) {
                 logger.error("fail to wait count latch");
             }
+        }
+        it = batchTask.entrySet().iterator();
+        while (it.hasNext()) {
+            it.next().getValue().endSyncLog();
         }
         logger.info("[ReplicateLog] move log index to {} with term {}", preLogIndex, preLogTerm);
         scheduleCommit(preLogIndex, preLogTerm, commitIdx, batchTask);
@@ -393,6 +415,7 @@ public class RaftCore {
         TreeMap<Long, Entry> batch = new TreeMap<Long, Entry>();
         for (long index  = commitFrom; index <= commitTo; ++index) {
             if(entries.containsKey(index)) {
+                entries.get(index).startCommit();
                 batch.put(index, entries.get(index).getEntry());
             }else {
                 try {
@@ -408,17 +431,24 @@ public class RaftCore {
             PutResponse response = PutResponse.newBuilder().setStatus(RpcStatus.kRpcOk).build();
             while (it.hasNext()) {
                 Map.Entry<Long, WriteTask> entry = it.next();
+                entry.getValue().endCommit();
                 entry.getValue().setDone(true);
+                logger.info("[CommitLog] task #WaitToWrite {}ms #WriteLog {}ms #SyncLog {}ms #CommitToLocal {}ms",
+                        entry.getValue().getWaitToWrite(),
+                        entry.getValue().getWriteLogConsumed(),
+                        entry.getValue().getSyncLogConsumed(),
+                        entry.getValue().getCommitToLocalConsumed());
                 StreamObserver<PutResponse> observer = entry.getValue().getResponseObserver();
                 observer.onNext(response);
                 observer.onCompleted();
+
             }
             tasks.clear();
-            writeCond.notify();
-            logger.info("[CommitLog] commit log with index {}", commitTo);
+            logger.info("[CommitLog] commit log with index {} sucessfully", commitTo);
             HostAndPort leaderEndpoint = options.getEndpoints().get(options.getIdx());
             ReplicateLogStatus leaderStatus = logStatus.get(leaderEndpoint);
             leaderStatus.setCommitIndex(commitTo);
+            writeCond.notify();
         } catch (RocksDBException e) {
             logger.error("fail batch write data store",e);
             Iterator<Map.Entry<Long, WriteTask>> it = entries.entrySet().iterator();
@@ -513,7 +543,10 @@ public class RaftCore {
         }
     }
 
-    private void handleHeartBeatCallBack(final AppendEntriesResponse value) {
+    private void handleHeartBeatCallBack(final long version,
+                                         final HostAndPort endpoint,
+                                         final AppendEntriesRequest request,
+                                         final AppendEntriesResponse value) {
         try {
             mutex.lock();
             // become follower
@@ -525,6 +558,17 @@ public class RaftCore {
             if (value.getTerm() > currentTerm) {
                 becomeToFollower(-1, value.getTerm());
                 logger.info("[AppendEntry] become follower for term update to {}", currentTerm);
+            }else if (value.getSuccess()){
+                final ReplicateLogStatus status = logStatus.get(endpoint);
+                if (status != null
+                        && status.isMatched()
+                        && request.getLeaderCommitIdx() > status.getCommitIndex()
+                        && version == status.getVersion()) {
+                    long oldCommitIdx = status.getCommitIndex();
+                    status.setCommitIndex(request.getLeaderCommitIdx());
+                    status.incr();
+                    logger.info("[CommitLog] move node {} commit index from {} to {}", endpoint, oldCommitIdx, request.getLeaderCommitIdx());
+                }
             }
         } catch (Throwable t) {
             logger.error("fail handle append entry call back ", t);
@@ -539,19 +583,32 @@ public class RaftCore {
             logger.warn("[AppendEntry] exit from sync log entry for role changed ");
             return;
         }
-        AppendEntriesRequest request = AppendEntriesRequest.newBuilder()
-                .setLeaderIdx(options.getIdx()).setTerm(currentTerm).build();
-        mutex.unlock();
+        HostAndPort leaderEndpoint = options.getEndpoints().get(options.getIdx());
+        ReplicateLogStatus leaderStatus = logStatus.get(leaderEndpoint);
         for (int i = 0; i < options.getEndpoints().size(); i++) {
-            HostAndPort endpoint = options.getEndpoints().get(i);
+            final HostAndPort endpoint = options.getEndpoints().get(i);
             if (i == options.getIdx()) {
                 continue;
             }
+            AppendEntriesRequest.Builder builder = AppendEntriesRequest.newBuilder();
+            builder.setLeaderIdx(options.getIdx()).setTerm(currentTerm);
+            builder.setLeaderCommitIdx(-1);
+            final ReplicateLogStatus status = logStatus.get(endpoint);
+            final long version;
+            if (status != null && status.isMatched() && leaderStatus.getCommitIndex() > status.getCommitIndex()) {
+                builder.setLeaderCommitIdx(leaderStatus.getCommitIndex());
+                builder.setPreLogTerm(status.getLastLogTerm());
+                builder.setPreLogIndex(status.getLastLogIndex());
+                version = status.getVersion();
+            }else {
+                version = -1;
+            }
             SlothStub slothStub = slothStubPool.getByEndpoint(endpoint.toString());
+            final AppendEntriesRequest request = builder.build();
             StreamObserver<AppendEntriesResponse> observer = new StreamObserver<AppendEntriesResponse>() {
                 @Override
-                public void onNext(AppendEntriesResponse value) {
-                    handleHeartBeatCallBack(value);
+                public void onNext(final AppendEntriesResponse value) {
+                    handleHeartBeatCallBack(version, endpoint, request, value);
                 }
 
                 @Override
@@ -565,7 +622,7 @@ public class RaftCore {
             };
             slothStub.getStub().appendEntries(request, observer);
         }
-        mutex.lock();
+
         heartBeatHandle = schedPool.schedule(new Runnable() {
             @Override
             public void run() {
@@ -577,7 +634,6 @@ public class RaftCore {
                 }
             }
         }, options.getReplicateLogInterval(), TimeUnit.MILLISECONDS);
-
     }
 
     private void resetElectionTimeout() {
@@ -766,6 +822,7 @@ public class RaftCore {
             status.setLastLogIndex(preLogIndex);
             status.setLastLogTerm(preLogTerm);
             status.setLastApplied(preLogIndex);
+            status.setCommitIndex(preLogIndex);
         } finally {
             mutex.unlock();
         }
@@ -793,10 +850,17 @@ public class RaftCore {
                 return true;
             }
             if (preLogIndex < status.getLastLogIndex()) {
-                Entry entry = binlogger.get(preLogIndex);
-                if (entry.getTerm() == preLogTerm) {
-                    binlogger.removeLog(preLogIndex + 1);
+                if (preLogIndex <= 0) {
+                    logger.info("[LogMatch] clean binlogger from index 1");
+                    binlogger.removeLog(1);
                     return true;
+                }else {
+                    Entry entry = binlogger.get(preLogIndex);
+                    if (entry.getTerm() == preLogTerm) {
+                        logger.info("[LogMatch] clean binlogger from index {}", preLogIndex + 1);
+                        binlogger.removeLog(preLogIndex + 1);
+                        return true;
+                    }
                 }
                 return false;
             }
