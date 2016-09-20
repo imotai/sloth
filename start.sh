@@ -25,4 +25,4 @@ else
   JAVA_BIN=/usr/local/java/bin/java
 fi
 $JAVA_BIN -version
-setuidgid sankuai $JAVA_BIN $JVM_LOG $JVM_OPT -Dfile.encoding=UTF-8  -cp $APP_HOME/work:$DEP_LIBS $APP_MAIN_CLASS
+setuidgid sankuai $JAVA_BIN $JVM_LOG $JVM_OPT -Dfile.encoding=UTF-8  -cp app:$DEP_LIBS io.microstack.sloth.Bootstrap

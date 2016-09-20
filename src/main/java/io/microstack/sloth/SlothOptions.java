@@ -27,6 +27,16 @@ public class SlothOptions {
 
     private String binlogPath;
 
+    public String getResourcePath() {
+        return resourcePath;
+    }
+
+    public void setResourcePath(String resourcePath) {
+        this.resourcePath = resourcePath;
+    }
+
+    private String resourcePath;
+
     private String dataPath;
     private int httpPort;
 

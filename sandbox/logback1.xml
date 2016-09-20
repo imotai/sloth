@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<configuration>
+
+	<appender name="consoleAppender" class="ch.qos.logback.core.ConsoleAppender">
+		<encoder>
+			<pattern>%d [%thread] %-5level [%F:%L] %msg%n</pattern>
+		</encoder>
+
+		<filter class="ch.qos.logback.classic.filter.ThresholdFilter">
+			<level>TRACE</level>
+		</filter>
+	</appender>
+
+	<!-- 按照每天生成日志文件 -->
+	<appender name="event"  class="ch.qos.logback.core.rolling.RollingFileAppender">
+		<rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+			<!--日志文件输出的文件名-->
+			<FileNamePattern>./log/sloth-event1.log.%d{yyyy-MM-dd-HH}</FileNamePattern>
+			<!--日志文件保留天数-->
+			<MaxHistory>7</MaxHistory>
+			<cleanHistoryOnStart>true</cleanHistoryOnStart>
+		</rollingPolicy>
+		<encoder>
+			<!--格式化输出：%d表示日期，%thread表示线程名，%-5level：级别从左显示5个字符宽度%msg：日志消息，%n是换行符-->
+			<pattern>%d [%thread] %-5level [%F:%L] %msg%n</pattern>
+		</encoder>
+	</appender>
+	
+    <appender name="status" class="ch.qos.logback.core.rolling.RollingFileAppender">
+         <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <!--日志文件输出的文件名-->
+            <FileNamePattern>./log/sloth-status1.log.%d{yyyy-MM-dd-HH}</FileNamePattern>
+            <!--日志文件保留天数-->
+            <MaxHistory>7</MaxHistory>
+        </rollingPolicy>
+        <encoder>
+            <!--格式化输出：%d表示日期，%thread表示线程名，%-5level：级别从左显示5个字符宽度%msg：日志消息，%n是换行符-->
+            <pattern>%msg%n</pattern>
+        </encoder>
+    </appender>
+    
+    <appender name="log" class="ch.qos.logback.core.rolling.RollingFileAppender">
+         <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <!--日志文件输出的文件名-->
+            <FileNamePattern>./log/sloth1.log.%d{yyyy-MM-dd-HH}</FileNamePattern>
+            <!--日志文件保留天数-->
+            <MaxHistory>7</MaxHistory>
+        </rollingPolicy>
+        <encoder>
+            <!--格式化输出：%d表示日期，%thread表示线程名，%-5level：级别从左显示5个字符宽度%msg：日志消息，%n是换行符-->
+            <pattern>%d [%thread] %-5level [%F:%L] %msg%n</pattern>
+        </encoder>
+    </appender>
+    
+    
+    
+    <logger name="event" additivity="false">
+		<level value="INFO" />
+		<appender-ref ref="event" />
+	</logger>
+	
+	<logger name="status" additivity="false">
+		<level value="INFO" />
+		<appender-ref ref="status" />
+	</logger>
+	
+	<logger name="log" additivity="false">
+        <level value="info" />
+        <appender-ref ref="log" />
+    </logger>
+
+	<root>
+		<level value="INFO" />
+		<appender-ref ref="log" />
+	</root>
+
+</configuration>

@@ -17,6 +17,7 @@
 		<property name="callbackPoolSize" value="10"></property>
 		<property name="replicateLogInterval" value="100"></property>
 		<property name="httpPort" value="8527"></property>
+		<property name="resourcePath" value="/Users/imotai/workspace/gitsloth/statics"></property>
 		<property name="endpointStr" value="127.0.0.1:9527,127.0.0.1:9528,127.0.0.1:9529,127.0.0.1:9530,127.0.0.1:9531"></property>
 	</bean>
 	

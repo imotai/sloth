@@ -18,10 +18,11 @@ public class ReplicateLogStatus {
     private Map<HostAndPort, Long> matchIndex = new HashMap<HostAndPort, Long>();
     private boolean matched = false;
     private Long version = 0l;
+    private SlothNodeRole role;
+    private long becomeLeaderTime;
+    private long becomeFollowerTime;
 
-    public ReplicateLogStatus() {
-
-    }
+    public ReplicateLogStatus() {}
 
     public static ReplicateLogStatus newStatus(HostAndPort endpoint) {
         ReplicateLogStatus status = new ReplicateLogStatus();
@@ -34,6 +35,30 @@ public class ReplicateLogStatus {
         status.getMatchIndex().clear();
         status.setMatched(false);
         return status;
+    }
+
+    public SlothNodeRole getRole() {
+        return role;
+    }
+
+    public void setRole(SlothNodeRole role) {
+        this.role = role;
+    }
+
+    public long getBecomeLeaderTime() {
+        return becomeLeaderTime;
+    }
+
+    public void setBecomeLeaderTime(long becomeLeaderTime) {
+        this.becomeLeaderTime = becomeLeaderTime;
+    }
+
+    public long getBecomeFollowerTime() {
+        return becomeFollowerTime;
+    }
+
+    public void setBecomeFollowerTime(long becomeFollowerTime) {
+        this.becomeFollowerTime = becomeFollowerTime;
     }
 
     public void incr() {

@@ -18,6 +18,7 @@
 		<property name="binlogPath" value="/tmp/binlogger4"></property>
 		<property name="dataPath" value="/tmp/data4"></property>
 		<property name="httpPort" value="8531"></property>
+		<property name="resourcePath" value="/Users/imotai/workspace/gitsloth/statics"></property>
 	</bean>
 	
 </beans>

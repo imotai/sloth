@@ -18,6 +18,7 @@
 		<property name="endpointStr" value="127.0.0.1:9527,127.0.0.1:9528,127.0.0.1:9529,127.0.0.1:9530,127.0.0.1:9531"></property>
 		<property name="binlogPath" value="/tmp/binlogger1"></property>
 		<property name="httpPort" value="8528"></property>
+		<property name="resourcePath" value="/Users/imotai/workspace/gitsloth/statics"></property>
 	</bean>
 	
 </beans>

@@ -129,6 +129,15 @@ public class RaftCore {
         }
     }
 
+    public ReplicateLogStatus getNodeStatus(HostAndPort endpoint) {
+        mutex.lock();
+        try {
+            return logStatus.get(endpoint);
+        } finally {
+            mutex.unlock();
+        }
+    }
+
     public void appendLogEntries(final AppendEntriesRequest request,
                                  StreamObserver<AppendEntriesResponse> responseObserver) {
         try {
@@ -716,12 +725,17 @@ public class RaftCore {
         for (int i = 0; i < options.getEndpoints().size(); i++) {
             final HostAndPort endpoint = options.getEndpoints().get(i);
             ReplicateLogStatus status = ReplicateLogStatus.newStatus(endpoint);
+
             logStatus.put(endpoint, status);
             if (i == options.getIdx()) {
                 status.setLastLogTerm(binlogger.getPreLogTerm());
                 status.setLastLogIndex(binlogger.getPreLogIndex());
                 status.setCommitIndex(dataStore.getCommitIdx());
+                status.setBecomeLeaderTime(System.currentTimeMillis());
+                status.setRole(SlothNodeRole.kLeader);
             } else {
+                status.setBecomeFollowerTime(System.currentTimeMillis());
+                status.setRole(SlothNodeRole.kFollower);
                 directPool.execute(new Runnable() {
                     public void run() {
                         matchLogIndexTask(endpoint, binlogger.getPreLogIndex(), binlogger.getPreLogTerm(),
@@ -746,6 +760,8 @@ public class RaftCore {
         status.setLastLogIndex(binlogger.getPreLogIndex());
         status.setCommitIndex(dataStore.getCommitIdx());
         status.setLastApplied(dataStore.getCommitIdx());
+        status.setRole(SlothNodeRole.kFollower);
+        status.setBecomeFollowerTime(System.currentTimeMillis());
         logStatus.put(endpoint, status);
         stopHeartBeat();
         stopVoteTimeoutCheck();
