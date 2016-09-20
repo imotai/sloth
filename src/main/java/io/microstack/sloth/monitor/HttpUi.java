@@ -1,5 +1,6 @@
 package io.microstack.sloth.monitor;
 
+import com.alibaba.fastjson.JSON;
 import com.google.common.net.HostAndPort;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
@@ -31,7 +32,7 @@ public class HttpUi extends AbstractHandler {
 
     @Autowired
     private SlothOptions options;
-    private Gson gson = new GsonBuilder().create();
+
     @Override
     public void handle(String s,
                        Request request,
@@ -62,9 +63,9 @@ public class HttpUi extends AbstractHandler {
         httpServletResponse.setContentType("application/json;charset=UTF-8");
         String jsonp = httpServletRequest.getParameter("jsonp");
         if (jsonp!=null && !jsonp.isEmpty()) {
-            httpServletResponse.getWriter().print(jsonp + "(" + gson.toJson(data) + ")");
+            httpServletResponse.getWriter().print(jsonp + "(" + JSON.toJSONString(data) + ")");
         }else {
-            httpServletResponse.getWriter().print(gson.toJson(data));
+            httpServletResponse.getWriter().print(JSON.toJSONString(data));
         }
     }
 }
