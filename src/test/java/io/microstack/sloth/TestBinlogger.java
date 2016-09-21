@@ -3,6 +3,7 @@ package io.microstack.sloth;
 import ch.qos.logback.classic.LoggerContext;
 import ch.qos.logback.classic.joran.JoranConfigurator;
 import com.google.protobuf.ByteString;
+import io.microstack.sloth.log.Binlogger;
 import org.junit.Assert;
 import org.junit.Test;
 import org.slf4j.LoggerFactory;

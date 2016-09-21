@@ -4,6 +4,8 @@ import com.google.common.net.HostAndPort;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.protobuf.InvalidProtocolBufferException;
 import io.grpc.stub.StreamObserver;
+import io.microstack.sloth.log.Binlogger;
+import io.microstack.sloth.storage.DataStore;
 import org.rocksdb.RocksDBException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -161,7 +163,7 @@ public class RaftCore {
                 becomeToFollower(leaderIdx, request.getTerm());
                 success = true;
                 logger.info("[AppendEntry] become follower for term update to {}", currentTerm);
-                event.debug("change role from {} to {} with term {}", oldRole, role, currentTerm);
+                event.info("change role from {} to {} with term {}", oldRole, role, currentTerm);
             } else if (request.getTerm() == currentTerm) {
                 success = true;
                 leaderIdx = (int) request.getLeaderIdx();
@@ -767,7 +769,6 @@ public class RaftCore {
         }
         stopElectionTimeoutCheck();
         stopVoteTimeoutCheck();
-
     }
 
     public void becomeToFollower(int leaderIdx, long newTerm) {

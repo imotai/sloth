@@ -1,6 +1,8 @@
-package io.microstack.sloth;
+package io.microstack.sloth.storage;
 
 import com.google.common.primitives.Longs;
+import io.microstack.sloth.Entry;
+import io.microstack.sloth.SlothOptions;
 import org.rocksdb.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

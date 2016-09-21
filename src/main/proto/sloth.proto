@@ -27,6 +27,8 @@ message RequestVoteRequest {
   uint64 candidate_id = 2;
   uint64 last_log_index = 3;
   uint64 last_log_term = 4;
+  // request from node
+  uint32 req_idx = 5;
 }
 
 message RequestVoteResponse {
@@ -49,6 +51,7 @@ message AppendEntriesRequest {
   repeated Entry entries = 5;
   uint64 leader_idx = 6;
   uint64 leader_commit_idx = 7;
+  uint32 req_idx = 8;
 }
 
 message AppendEntriesResponse {

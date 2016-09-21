@@ -4,7 +4,8 @@
 
 	<appender name="consoleAppender" class="ch.qos.logback.core.ConsoleAppender">
 		<encoder>
-			<Pattern>.%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg %n</Pattern>
+			<!--格式化输出：%d表示日期，%thread表示线程名，%-5level：级别从左显示5个字符宽度%msg：日志消息，%n是换行符-->
+			<pattern>%d [%thread] %-5level [%F:%L] %msg%n</pattern>
 		</encoder>
 		<filter class="ch.qos.logback.classic.filter.ThresholdFilter">
 			<level>TRACE</level>
@@ -33,10 +34,10 @@
             <!--日志文件保留天数-->
             <MaxHistory>7</MaxHistory>
         </rollingPolicy>
-        <encoder>
-            <!--格式化输出：%d表示日期，%thread表示线程名，%-5level：级别从左显示5个字符宽度%msg：日志消息，%n是换行符-->
-            <pattern>%msg%n</pattern>
-        </encoder>
+		<encoder>
+			<!--格式化输出：%d表示日期，%thread表示线程名，%-5level：级别从左显示5个字符宽度%msg：日志消息，%n是换行符-->
+			<pattern>%d [%thread] %-5level [%F:%L] %msg%n</pattern>
+		</encoder>
     </appender>
     
     <appender name="log" class="ch.qos.logback.core.rolling.RollingFileAppender">
@@ -46,10 +47,10 @@
             <!--日志文件保留天数-->
             <MaxHistory>7</MaxHistory>
         </rollingPolicy>
-        <encoder>
-            <!--格式化输出：%d表示日期，%thread表示线程名，%-5level：级别从左显示5个字符宽度%msg：日志消息，%n是换行符-->
-            <pattern>%d [%thread] %-5level [%F:%L] %msg%n</pattern>
-        </encoder>
+		<encoder>
+			<!--格式化输出：%d表示日期，%thread表示线程名，%-5level：级别从左显示5个字符宽度%msg：日志消息，%n是换行符-->
+			<pattern>%d [%thread] %-5level [%F:%L] %msg%n</pattern>
+		</encoder>
     </appender>
     
     

@@ -21,7 +21,7 @@ public class ReplicateLogStatus {
     private SlothNodeRole role;
     private long becomeLeaderTime;
     private long becomeFollowerTime;
-
+    
     public ReplicateLogStatus() {}
 
     public static ReplicateLogStatus newStatus(HostAndPort endpoint) {
