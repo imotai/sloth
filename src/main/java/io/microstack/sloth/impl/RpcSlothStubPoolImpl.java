@@ -43,6 +43,7 @@ public class RpcSlothStubPoolImpl implements SlothStubPool {
                 .executor(callbackPool).usePlaintext(true).build();
         SlothStub stub = new SlothStub();
         stub.setChannel(channel);
+        stub.setFstub(SlothNodeGrpc.newFutureStub(channel));
         stub.setStub(SlothNodeGrpc.newStub(channel));
         stubs.put(endpoint, stub);
         return stub;

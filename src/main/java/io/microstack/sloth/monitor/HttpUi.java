@@ -63,7 +63,7 @@ public class HttpUi extends AbstractHandler {
             }
             views.add(new NodeView(status));
         }
-        data.put("cluster", data);
+        data.put("cluster", views);
         data.put("name", "sloth");
         httpServletResponse.setContentType("application/json;charset=UTF-8");
         String jsonp = httpServletRequest.getParameter("jsonp");
@@ -90,14 +90,10 @@ public class HttpUi extends AbstractHandler {
                 }
 
                 @Override
-                public void onError(Throwable t) {
-
-                }
+                public void onError(Throwable t) {}
 
                 @Override
-                public void onCompleted() {
-
-                }
+                public void onCompleted() {}
             };
             stub.getStub().put(request, observer);
         }
@@ -106,8 +102,6 @@ public class HttpUi extends AbstractHandler {
             count.await();
             data.put("msg", "ok");
             httpServletResponse.getWriter().print(JSON.toJSONString(data));
-        } catch (InterruptedException e) {
-
-        }
+        } catch (InterruptedException e) {}
     }
 }

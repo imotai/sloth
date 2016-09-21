@@ -5,7 +5,7 @@ import io.grpc.ManagedChannel;
 public class SlothStub {
 
     private SlothNodeGrpc.SlothNodeStub stub;
-
+    private SlothNodeGrpc.SlothNodeFutureStub fstub;
     private ManagedChannel channel;
 
     public ManagedChannel getChannel() {
@@ -22,5 +22,13 @@ public class SlothStub {
 
     public void setStub(SlothNodeGrpc.SlothNodeStub stub) {
         this.stub = stub;
+    }
+
+    public SlothNodeGrpc.SlothNodeFutureStub getFstub() {
+        return fstub;
+    }
+
+    public void setFstub(SlothNodeGrpc.SlothNodeFutureStub fstub) {
+        this.fstub = fstub;
     }
 }

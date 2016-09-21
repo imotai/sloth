@@ -1,6 +1,7 @@
 package io.microstack.sloth;
 
 import com.google.common.net.HostAndPort;
+import com.google.common.util.concurrent.ListenableFuture;
 import com.google.protobuf.InvalidProtocolBufferException;
 import io.grpc.stub.StreamObserver;
 import org.rocksdb.RocksDBException;
@@ -335,12 +336,8 @@ public class RaftCore {
         long preLogIndex = leaderStatus.getLastLogIndex();
         long preLogTerm = leaderStatus.getLastLogTerm();
         long commitIdx = dataStore.getCommitIdx();
-        int major = options.getEndpoints().size() / 2 + 1;
-        final CountDownLatch finishLatch = new CountDownLatch(major - 1);
+        Map<HostAndPort, ListenableFuture<AppendEntriesResponse>> futures = new HashMap<HostAndPort, ListenableFuture<AppendEntriesResponse>>();
         for (int i = 0; i < options.getEndpoints().size(); i++) {
-            if (i == options.getIdx()) {
-                continue;
-            }
             final HostAndPort endpoint = options.getEndpoints().get(i);
             final ReplicateLogStatus status = logStatus.get(endpoint);
             if (status == null
@@ -349,7 +346,6 @@ public class RaftCore {
                 continue;
             }
             SlothStub slothStub = slothStubPool.getByEndpoint(endpoint.toString());
-            // replicate log
             if (leaderStatus.getLastLogIndex() > status.getLastLogIndex()) {
                 final long indexFrom = status.getLastLogIndex() + 1;
                 final long indexTo = leaderStatus.getLastLogIndex();
@@ -365,53 +361,75 @@ public class RaftCore {
                     builder.setPreLogTerm(status.getLastLogTerm());
                     builder.setLeaderCommitIdx(dataStore.getCommitIdx());
                     final AppendEntriesRequest request = builder.build();
-                    StreamObserver<AppendEntriesResponse> observer = new StreamObserver<AppendEntriesResponse>() {
-                        @Override
-                        public void onNext(AppendEntriesResponse value) {
-                            if (value.getSuccess()) {
-                                // lock is held by main thread
-                                status.setCommitIndex(request.getLeaderCommitIdx());
-                                status.setLastLogTerm(currentTerm);
-                                status.setLastLogIndex(indexTo);
-                                status.incr();
-                                logger.info("[ReplicateLog] replicate log  {} from {} to {} ", endpoint, indexFrom,
-                                        indexTo);
-                                finishLatch.countDown();
-                            }
-
-                        }
-
-                        @Override
-                        public void onError(Throwable t) {
-                            logger.error("fail to get append entry {} ", endpoint, t);
-                        }
-
-                        @Override
-                        public void onCompleted() {
-
-                        }
-                    };
-                    slothStub.getStub().appendEntries(request, observer);
+                    long singleRequestConsumed = System.currentTimeMillis();
+                    ListenableFuture<AppendEntriesResponse> responseFuture =  slothStub.getFstub().appendEntries(request);
+                    futures.put(endpoint, responseFuture);
                 } catch (InvalidProtocolBufferException e) {
                     logger.error("fail batch get from binlogger from {} to {}", indexFrom, indexTo, e);
                 }
-            } else {
-                finishLatch.countDown();
             }
         }
-        while (finishLatch.getCount() > 0) {
-            try {
-                finishLatch.await(100, TimeUnit.MILLISECONDS);
-            } catch (InterruptedException e) {
-                logger.error("fail to wait count latch");
+        //TODO  process logmatch count < major
+        int major = options.getEndpoints().size() / 2 + 1;
+        int count = major - 1;
+        Set<HostAndPort> toBeRemoved = new HashSet<HostAndPort>();
+        while (count > 0 && futures.size() > major) {
+            Iterator<Map.Entry<HostAndPort, ListenableFuture<AppendEntriesResponse>>> fit = futures.entrySet().iterator();
+            while (fit.hasNext()) {
+                Map.Entry<HostAndPort, ListenableFuture<AppendEntriesResponse>> entry = fit.next();
+                if (!entry.getValue().isDone()) {
+                    continue;
+                }
+                final ReplicateLogStatus status = logStatus.get(entry.getKey());
+                try {
+                    final long indexFrom = status.getLastLogIndex() + 1;
+                    final long indexTo = leaderStatus.getLastLogIndex();
+                    AppendEntriesResponse response = entry.getValue().get();
+                    count --;
+                    status.setCommitIndex(leaderStatus.getCommitIndex());
+                    status.setLastLogTerm(currentTerm);
+                    status.setLastLogIndex(indexTo);
+                    status.incr();
+                    logger.info("[ReplicateLog] replicate log  {} from {} to {} ", entry.getKey(), indexFrom,
+                            indexTo);
+                    toBeRemoved.add(entry.getKey());
+                } catch (InterruptedException e) {
+                    logger.error("fail to get response from {}",entry.getKey(),e);
+                } catch (ExecutionException e) {
+                    logger.error("fail to get response from {}",entry.getKey(),e);
+                }
             }
         }
+
         it = batchTask.entrySet().iterator();
         while (it.hasNext()) {
             it.next().getValue().endSyncLog();
         }
         logger.info("[ReplicateLog] move log index to {} with term {}", preLogIndex, preLogTerm);
         scheduleCommit(preLogIndex, preLogTerm, commitIdx, batchTask);
+        Iterator<Map.Entry<HostAndPort, ListenableFuture<AppendEntriesResponse>>> fit = futures.entrySet().iterator();
+        while (fit.hasNext()) {
+            Map.Entry<HostAndPort, ListenableFuture<AppendEntriesResponse>> entry = fit.next();
+            if (toBeRemoved.contains(entry.getKey())) {
+                continue;
+            }
+            final ReplicateLogStatus status = logStatus.get(entry.getKey());
+            try {
+                final long indexFrom = status.getLastLogIndex() + 1;
+                final long indexTo = leaderStatus.getLastLogIndex();
+                AppendEntriesResponse response = entry.getValue().get();
+                status.setCommitIndex(leaderStatus.getCommitIndex());
+                status.setLastLogTerm(currentTerm);
+                status.setLastLogIndex(indexTo);
+                status.incr();
+                logger.info("[ReplicateLog] replicate log  {} from {} to {} ", entry.getKey(), indexFrom,
+                        indexTo);
+            } catch (InterruptedException e) {
+                logger.error("fail to get response from {}",entry.getKey(),e);
+            } catch (ExecutionException e) {
+                logger.error("fail to get response from {}",entry.getKey(),e);
+            }
+        }
     }
 
     /**
@@ -729,7 +747,6 @@ public class RaftCore {
         for (int i = 0; i < options.getEndpoints().size(); i++) {
             final HostAndPort endpoint = options.getEndpoints().get(i);
             ReplicateLogStatus status = ReplicateLogStatus.newStatus(endpoint);
-
             logStatus.put(endpoint, status);
             if (i == options.getIdx()) {
                 status.setLastLogTerm(binlogger.getPreLogTerm());
@@ -758,6 +775,7 @@ public class RaftCore {
         logger.info("I am a follower with leader idx {} and term {}", leaderIdx, newTerm);
         this.leaderIdx = leaderIdx;
         role = SlothNodeRole.kFollower;
+        logStatus.clear();
         HostAndPort endpoint = options.getEndpoints().get(options.getIdx());
         ReplicateLogStatus status = ReplicateLogStatus.newStatus(endpoint);
         status.setLastLogTerm(binlogger.getPreLogTerm());
