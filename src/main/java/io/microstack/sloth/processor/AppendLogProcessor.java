@@ -77,9 +77,7 @@ public class AppendLogProcessor {
                                      StreamObserver<AppendEntriesResponse> responseObserver) {
         assert context.getMutex().isHeldByCurrentThread();
         becomeToFollower((int)request.getLeaderIdx(), request.getTerm());
-        if (request.getLeaderCommitIdx() < 0) {
-            // leader is not ready
-        }
+        processForFollower(request, responseObserver);
     }
 
     private void processForFollower(final AppendEntriesRequest request,

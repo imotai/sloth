@@ -5,6 +5,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -20,8 +21,8 @@ public class GSchedThreadPool {
         return pool;
     }
 
-    public void schedule(Runnable task, long delay) {
-        executor.schedule(task, delay, TimeUnit.MILLISECONDS);
+    public ScheduledFuture<?> schedule(Runnable task, long delay) {
+        return executor.schedule(task, delay, TimeUnit.MILLISECONDS);
     }
 
 

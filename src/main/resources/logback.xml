@@ -52,9 +52,20 @@
 			<pattern>%d [%thread] %-5level [%F:%L] %msg%n</pattern>
 		</encoder>
     </appender>
-    
-    
-    
+
+	<appender name="task" class="ch.qos.logback.core.rolling.RollingFileAppender">
+		<rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+			<!--日志文件输出的文件名-->
+			<FileNamePattern>sloth-task.log.%d{yyyy-MM-dd-HH}</FileNamePattern>
+			<!--日志文件保留天数-->
+			<MaxHistory>7</MaxHistory>
+		</rollingPolicy>
+		<encoder>
+			<!--格式化输出：%d表示日期，%thread表示线程名，%-5level：级别从左显示5个字符宽度%msg：日志消息，%n是换行符-->
+			<pattern>%d [%thread] %-5level [%F:%L] %msg%n</pattern>
+		</encoder>
+	</appender>
+
     <logger name="event" additivity="false">
 		<level value="INFO" />
 		<appender-ref ref="event" />

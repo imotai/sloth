@@ -3,6 +3,7 @@ package io.microstack.sloth.context;
 import com.google.common.net.HostAndPort;
 import io.microstack.sloth.ReplicateLogStatus;
 import io.microstack.sloth.SlothNodeRole;
+import io.microstack.sloth.SlothOptions;
 import io.microstack.sloth.WriteTask;
 import io.microstack.sloth.log.Binlogger;
 import io.microstack.sloth.storage.DataStore;
@@ -23,6 +24,7 @@ import java.util.concurrent.locks.ReentrantLock;
 
 public class SlothContext {
     private static final Logger status = LoggerFactory.getLogger("status");
+    private static final Logger logger = LoggerFactory.getLogger(SlothContext.class);
     private final ReentrantLock mutex = new ReentrantLock();
     private final Condition writeCond = mutex.newCondition();
     private int leaderIdx;
@@ -37,11 +39,13 @@ public class SlothContext {
 
     private Binlogger binlogger;
     private DataStore dataStore;
-
+    private SlothOptions options;
     public SlothContext(Binlogger binlogger,
-                        DataStore dataStore) {
+                        DataStore dataStore,
+                        SlothOptions options) {
         this.binlogger = binlogger;
         this.dataStore = dataStore;
+        this.options = options;
     }
 
     public HostAndPort getEndpoint() {
@@ -140,7 +144,29 @@ public class SlothContext {
     }
 
     public void resetToLeader() {
-
+        assert mutex.isHeldByCurrentThread();
+        logger.info("[Vote] I am the leader with term {} with idx {} ", currentTerm, options.getIdx());
+        logStatus.clear();
+        role = SlothNodeRole.kLeader;
+        leaderIdx = options.getIdx();
+        for (int i = 0; i < options.getEndpoints().size(); i++) {
+            final HostAndPort nodeEndpoint = options.getEndpoints().get(i);
+            ReplicateLogStatus status = ReplicateLogStatus.newStatus(nodeEndpoint);
+            logStatus.put(nodeEndpoint, status);
+            if (i == options.getIdx()) {
+                status.setLastLogTerm(binlogger.getPreLogTerm());
+                status.setLastLogIndex(binlogger.getPreLogIndex());
+                status.setCommitIndex(dataStore.getCommitIdx());
+                status.setBecomeLeaderTime(System.currentTimeMillis());
+                status.setRole(SlothNodeRole.kLeader);
+            } else {
+                status.setBecomeFollowerTime(System.currentTimeMillis());
+                status.setRole(SlothNodeRole.kFollower);
+                status.setLastLogTerm(binlogger.getPreLogTerm());
+                status.setLastLogIndex(binlogger.getPreLogIndex());
+                status.setCommitIndex(dataStore.getCommitIdx());
+            }
+        }
     }
 
     public boolean isLeader() {
