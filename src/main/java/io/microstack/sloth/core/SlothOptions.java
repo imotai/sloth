@@ -1,4 +1,4 @@
-package io.microstack.sloth;
+package io.microstack.sloth.core;
 
 import com.google.common.net.HostAndPort;
 
@@ -26,6 +26,16 @@ public class SlothOptions {
     private String endpointStr;
 
     private String binlogPath;
+
+    private int maxTaskCount = 20000;
+
+    public int getMaxTaskCount() {
+        return maxTaskCount;
+    }
+
+    public void setMaxTaskCount(int maxTaskCount) {
+        this.maxTaskCount = maxTaskCount;
+    }
 
     public String getResourcePath() {
         return resourcePath;

@@ -1,6 +1,7 @@
-package io.microstack.sloth;
+package io.microstack.sloth.rpc;
 
 import io.grpc.ManagedChannel;
+import io.microstack.sloth.SlothNodeGrpc;
 
 public class SlothStub {
 

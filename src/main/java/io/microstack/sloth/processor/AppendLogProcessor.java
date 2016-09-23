@@ -6,8 +6,11 @@ import io.grpc.stub.StreamObserver;
 import io.microstack.sloth.*;
 import io.microstack.sloth.common.GThreadPool;
 import io.microstack.sloth.context.SlothContext;
+import io.microstack.sloth.core.ReplicateLogStatus;
+import io.microstack.sloth.core.SlothOptions;
 import io.microstack.sloth.log.Binlogger;
 import io.microstack.sloth.storage.DataStore;
+import io.microstack.sloth.task.TaskManager;
 import org.rocksdb.RocksDBException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -26,14 +29,17 @@ public class AppendLogProcessor {
     private SlothOptions options;
     private Binlogger binlogger;
     private DataStore dataStore;
+    private TaskManager taskManager;
     public AppendLogProcessor(SlothContext context,
                               SlothOptions options,
                               Binlogger binlogger,
-                              DataStore dataStore) {
+                              DataStore dataStore,
+                              TaskManager taskManager) {
         this.context = context;
         this.options = options;
         this.binlogger = binlogger;
         this.dataStore = dataStore;
+        this.taskManager = taskManager;
     }
 
 
@@ -55,9 +61,9 @@ public class AppendLogProcessor {
             if (context.isCandidate()) {
                 processForCandidate(request, responseObserver);
             }else if (context.isFollower()) {
-
+                processForFollower(request, responseObserver);
             }else {
-                // should not go here
+                processForLeader(request, responseObserver);
             }
         } catch (Throwable t) {
             logger.error("fail to process append log request", t);
@@ -84,6 +90,7 @@ public class AppendLogProcessor {
                                     StreamObserver<AppendEntriesResponse> responseObserver) {
         assert context.getMutex().isHeldByCurrentThread();
         try {
+            taskManager.resetDelayTask(TaskManager.TaskType.kElectionTask);
             if (isMatchLog(request)) {
                 boolean ok = true;
                 if (request.getEntriesList() != null
@@ -94,10 +101,24 @@ public class AppendLogProcessor {
             }else {
                 makeOkResponse(responseObserver, false);
             }
-
         } catch (Exception e) {
             logger.error("fail to match log", e);
             makeErrorResponse(responseObserver);
+        }
+    }
+
+
+    private void processForLeader(final AppendEntriesRequest request,
+                                  StreamObserver<AppendEntriesResponse> responseObserver) {
+        assert context.getMutex().isHeldByCurrentThread();
+        try {
+            if (request.getTerm() > context.getCurrentTerm()) {
+                taskManager.stopTask(TaskManager.TaskType.kHeartBeatTask);
+                becomeToFollower((int)request.getLeaderIdx(), request.getTerm());
+                processForFollower(request, responseObserver);
+            }
+        } catch (Exception e) {
+            logger.error("fail to process append entry", e);
         }
     }
     /**

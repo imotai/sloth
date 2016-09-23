@@ -1,6 +1,9 @@
-package io.microstack.sloth;
+package io.microstack.sloth.core;
 
 import io.grpc.stub.StreamObserver;
+import io.microstack.sloth.Entry;
+import io.microstack.sloth.PutRequest;
+import io.microstack.sloth.PutResponse;
 
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.Condition;

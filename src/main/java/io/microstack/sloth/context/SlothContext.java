@@ -1,10 +1,10 @@
 package io.microstack.sloth.context;
 
 import com.google.common.net.HostAndPort;
-import io.microstack.sloth.ReplicateLogStatus;
+import io.microstack.sloth.core.ReplicateLogStatus;
 import io.microstack.sloth.SlothNodeRole;
-import io.microstack.sloth.SlothOptions;
-import io.microstack.sloth.WriteTask;
+import io.microstack.sloth.core.SlothOptions;
+import io.microstack.sloth.core.WriteTask;
 import io.microstack.sloth.log.Binlogger;
 import io.microstack.sloth.storage.DataStore;
 import org.slf4j.Logger;
@@ -152,6 +152,7 @@ public class SlothContext {
         for (int i = 0; i < options.getEndpoints().size(); i++) {
             final HostAndPort nodeEndpoint = options.getEndpoints().get(i);
             ReplicateLogStatus status = ReplicateLogStatus.newStatus(nodeEndpoint);
+            status.setMatched(false);
             logStatus.put(nodeEndpoint, status);
             if (i == options.getIdx()) {
                 status.setLastLogTerm(binlogger.getPreLogTerm());

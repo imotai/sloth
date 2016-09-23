@@ -1,4 +1,4 @@
-package io.microstack.sloth;
+package io.microstack.sloth.rpc;
 
 public interface SlothStubPool {
 

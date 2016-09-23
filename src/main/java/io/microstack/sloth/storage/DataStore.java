@@ -2,7 +2,7 @@ package io.microstack.sloth.storage;
 
 import com.google.common.primitives.Longs;
 import io.microstack.sloth.Entry;
-import io.microstack.sloth.SlothOptions;
+import io.microstack.sloth.core.SlothOptions;
 import org.rocksdb.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -81,6 +81,13 @@ public class DataStore {
 
     @PreDestroy
     public void close() {
+        FlushOptions fopt = new FlushOptions();
+        fopt.setWaitForFlush(true);
+        try {
+            db.flush(fopt);
+        } catch (RocksDBException e) {
+            logger.error("fail to flush db", e);
+        }
         db.close();
     }
 }

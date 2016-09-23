@@ -7,7 +7,7 @@
 
 	<context:annotation-config />
 	<context:component-scan base-package="io.microstack.sloth" />
-	<bean name="slothOptions" class="io.microstack.sloth.SlothOptions">
+	<bean name="slothOptions" class="io.microstack.sloth.core.SlothOptions">
 		<property name="maxElectionTimeout" value="300"></property>
 		<property name="minElectionTimeout" value="150"></property>
 		<property name="idx" value="3"></property>

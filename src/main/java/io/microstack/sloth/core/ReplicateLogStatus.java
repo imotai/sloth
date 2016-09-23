@@ -1,6 +1,7 @@
-package io.microstack.sloth;
+package io.microstack.sloth.core;
 
 import com.google.common.net.HostAndPort;
+import io.microstack.sloth.SlothNodeRole;
 
 import java.util.HashMap;
 import java.util.List;

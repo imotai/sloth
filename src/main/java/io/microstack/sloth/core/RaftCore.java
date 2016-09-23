@@ -1,10 +1,13 @@
-package io.microstack.sloth;
+package io.microstack.sloth.core;
 
 import com.google.common.net.HostAndPort;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.protobuf.InvalidProtocolBufferException;
 import io.grpc.stub.StreamObserver;
+import io.microstack.sloth.*;
 import io.microstack.sloth.log.Binlogger;
+import io.microstack.sloth.rpc.SlothStub;
+import io.microstack.sloth.rpc.SlothStubPool;
 import io.microstack.sloth.storage.DataStore;
 import org.rocksdb.RocksDBException;
 import org.slf4j.Logger;

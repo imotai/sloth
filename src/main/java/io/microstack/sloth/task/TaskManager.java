@@ -2,19 +2,18 @@ package io.microstack.sloth.task;
 
 import com.google.common.net.HostAndPort;
 import com.google.common.util.concurrent.ListenableFuture;
-import io.grpc.stub.StreamObserver;
 import io.microstack.sloth.*;
 import io.microstack.sloth.common.GSchedThreadPool;
-import io.microstack.sloth.common.SlothThreadFactory;
 import io.microstack.sloth.context.SlothContext;
+import io.microstack.sloth.core.RaftCore;
+import io.microstack.sloth.core.ReplicateLogStatus;
+import io.microstack.sloth.core.SlothOptions;
+import io.microstack.sloth.rpc.SlothStub;
+import io.microstack.sloth.rpc.SlothStubPool;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.stereotype.Service;
 
 import java.util.*;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 
 /**
@@ -39,16 +38,12 @@ public class TaskManager {
         kElectionTask,
         kWaitVoteTask,
         kHeartBeatTask
+
     }
 
     class Task {
         public TaskType type;
         public ScheduledFuture<?> handle;
-    }
-
-
-    public void init() {
-
     }
 
 
@@ -68,6 +63,7 @@ public class TaskManager {
             builder.setReqIdx(options.getIdx());
             builder.setLastLogIndex(status.getLastLogIndex());
             builder.setLastLogTerm(status.getLastLogTerm());
+            builder.setTerm(context.getCurrentTerm());
             RequestVoteRequest request = builder.build();
             context.getMutex().unlock();
             Map<HostAndPort, ListenableFuture<RequestVoteResponse>> futures = new HashMap<>();
@@ -82,7 +78,12 @@ public class TaskManager {
                 futures.put(endpoint, fresponse);
             }
             processVoteResult(futures);
-        } finally {
+            this.stopTask(TaskType.kElectionTask);
+            this.stopTask(TaskType.kHeartBeatTask);
+            this.resetDelayTask(TaskType.kWaitVoteTask);
+        } catch (Exception e) {
+            logger.error("fail to process election timeout task ", e);
+        }finally {
             if (context.getMutex().isHeldByCurrentThread()) {
                 context.getMutex().unlock();
             }
@@ -97,7 +98,7 @@ public class TaskManager {
             Iterator<Map.Entry<HostAndPort, ListenableFuture<RequestVoteResponse>>> it = futures.entrySet().iterator();
             while (it.hasNext()) {
                 Map.Entry<HostAndPort, ListenableFuture<RequestVoteResponse>> entry = it.next();
-                if (entry.getValue().isDone()) {
+                if (entry.getValue().isDone() && !votedNode.contains(entry.getKey())) {
                     votedNode.add(entry.getKey());
                     try {
                         RequestVoteResponse response = entry.getValue().get();
@@ -239,14 +240,22 @@ public class TaskManager {
      **/
     private void becomeToLeader() {
         assert context.getMutex().isHeldByCurrentThread();
-        context.resetToLeader();
-        resetDelayTask(TaskType.kHeartBeatTask);
         stopTask(TaskType.kElectionTask);
         stopTask(TaskType.kWaitVoteTask);
+        context.resetToLeader();
+        resetDelayTask(TaskType.kHeartBeatTask);
     }
 
     public void stopTask(TaskType type) {
         assert context.getMutex().isHeldByCurrentThread();
+        if (tasks.containsKey(type)) {
+            Task task = tasks.get(type);
+            if (task.handle != null) {
+                logger.info("cancel task with type {}", type);
+                task.handle.cancel(true);
+            }
+            tasks.remove(type);
+        }
     }
 
     public void resetDelayTask(TaskType type) {
@@ -254,7 +263,7 @@ public class TaskManager {
         if (tasks.containsKey(type)) {
             Task task = tasks.get(type);
             if (task.handle != null) {
-                task.handle.cancel(false);
+                task.handle.cancel(true);
             }
             tasks.remove(type);
         }

@@ -2,7 +2,7 @@ package io.microstack.sloth.log;
 
 import com.google.protobuf.InvalidProtocolBufferException;
 import io.microstack.sloth.Entry;
-import io.microstack.sloth.SlothOptions;
+import io.microstack.sloth.core.SlothOptions;
 import org.rocksdb.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -145,6 +145,13 @@ public class Binlogger {
     @PreDestroy
     public void close() {
         synchronized (tx) {
+            FlushOptions fopt = new FlushOptions();
+            fopt.setWaitForFlush(true);
+            try {
+                db.flush(fopt);
+            } catch (RocksDBException e) {
+                logger.error("fail to flush db", e);
+            }
             db.close();
         }
     }

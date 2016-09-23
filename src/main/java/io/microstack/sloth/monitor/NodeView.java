@@ -1,7 +1,7 @@
 package io.microstack.sloth.monitor;
 
 import com.google.common.net.HostAndPort;
-import io.microstack.sloth.ReplicateLogStatus;
+import io.microstack.sloth.core.ReplicateLogStatus;
 import io.microstack.sloth.SlothNodeRole;
 
 /**

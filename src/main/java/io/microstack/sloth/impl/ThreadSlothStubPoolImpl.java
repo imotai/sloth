@@ -1,7 +1,7 @@
 package io.microstack.sloth.impl;
 
-import io.microstack.sloth.SlothStub;
-import io.microstack.sloth.SlothStubPool;
+import io.microstack.sloth.rpc.SlothStub;
+import io.microstack.sloth.rpc.SlothStubPool;
 
 public class ThreadSlothStubPoolImpl implements SlothStubPool {
 

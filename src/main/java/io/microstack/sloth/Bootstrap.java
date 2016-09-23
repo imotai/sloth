@@ -2,7 +2,7 @@ package io.microstack.sloth;
 
 import ch.qos.logback.classic.LoggerContext;
 import ch.qos.logback.classic.joran.JoranConfigurator;
-import io.microstack.sloth.impl.SlothNodeImpl;
+import io.microstack.sloth.core.SlothNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.support.ClassPathXmlApplicationContext;
@@ -16,7 +16,7 @@ public class Bootstrap {
     public static void main(String[] args) throws IOException {
         init();
         ClassPathXmlApplicationContext ctx = new ClassPathXmlApplicationContext("classpath:sloth.xml");
-        SlothNodeImpl sloth = ctx.getBean(SlothNodeImpl.class);
+        SlothNode sloth = ctx.getBean(SlothNode.class);
         sloth.start();
         ctx.registerShutdownHook();
         logger.info("boot sloth successfully");
