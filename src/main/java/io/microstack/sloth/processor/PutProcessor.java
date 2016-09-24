@@ -73,6 +73,7 @@ public class PutProcessor {
             }
             task.endWaitToWrite();
             TreeMap<Long, WriteTask> dataMap = batchWriteLog();
+            scheduleReplicateLog(dataMap);
         } finally {
             if (context.getMutex().isHeldByCurrentThread()) {
                 context.getMutex().unlock();
@@ -230,7 +231,13 @@ public class PutProcessor {
             public void onSuccess() {
                 Iterator<Map.Entry<Long, WriteTask>> it = batchTask.entrySet().iterator();
                 while (it.hasNext()) {
-                    it.next().getValue().endSyncLog();
+                    Map.Entry<Long, WriteTask> entry = it.next();
+                    entry.getValue().endSyncLog();
+                    logger.info("[CommitLog] task #WaitToWrite {}ms #WriteLog {}ms #SyncLog {}ms #CommitToLocal {}ms",
+                            entry.getValue().getWaitToWrite(),
+                            entry.getValue().getWriteLogConsumed(),
+                            entry.getValue().getSyncLogConsumed(),
+                            entry.getValue().getCommitToLocalConsumed());
                 }
                 logger.info("[ReplicateLog] move log index to {} with term {}", preLogIndex, preLogTerm);
                 scheduleCommit(preLogIndex, preLogTerm, commitIdx, batchTask);
@@ -256,10 +263,14 @@ public class PutProcessor {
                     batch.put(index, binlogger.get(index));
                 } catch (Exception e) {
                     logger.error("fail to get log with {}", index, e);
+                    failAllRequest(entries);
+                    return;
                 }
             }
         }
         try {
+            logger.info("[CommitLog] prepare to commit from {} to {} with batch size {}",
+                    commitFrom, commitTo, batch.size());
             dataStore.batchWrite(batch);
             Iterator<Map.Entry<Long, WriteTask>> it = entries.entrySet().iterator();
             PutResponse response = PutResponse.newBuilder().setStatus(RpcStatus.kRpcOk).build();
@@ -280,24 +291,29 @@ public class PutProcessor {
             logger.info("[CommitLog] commit log with index {} sucessfully", commitTo);
             ReplicateLogStatus leaderStatus = context.getLogStatus().get(context.getEndpoint());
             leaderStatus.setCommitIndex(commitTo);
+            leaderStatus.setLastApplied(commitTo);
             context.getWriteCond().notify();
         } catch (RocksDBException e) {
             logger.error("fail batch write data store", e);
-            Iterator<Map.Entry<Long, WriteTask>> it = entries.entrySet().iterator();
-            PutResponse response = PutResponse.newBuilder().setStatus(RpcStatus.kRpcError).build();
-            while (it.hasNext()) {
-                Map.Entry<Long, WriteTask> entry = it.next();
-                entry.getValue().setDone(true);
-                StreamObserver<PutResponse> observer = entry.getValue().getResponseObserver();
-                observer.onNext(response);
-                observer.onCompleted();
-            }
-            tasks.clear();
-            context.getWriteCond().notify();
+            failAllRequest(entries);
         }
 
     }
 
+    private void failAllRequest(TreeMap<Long, WriteTask> entries) {
+        assert context.getMutex().isHeldByCurrentThread();
+        Iterator<Map.Entry<Long, WriteTask>> it = entries.entrySet().iterator();
+        PutResponse response = PutResponse.newBuilder().setStatus(RpcStatus.kRpcError).build();
+        while (it.hasNext()) {
+            Map.Entry<Long, WriteTask> entry = it.next();
+            entry.getValue().setDone(true);
+            StreamObserver<PutResponse> observer = entry.getValue().getResponseObserver();
+            observer.onNext(response);
+            observer.onCompleted();
+        }
+        tasks.clear();
+        context.getWriteCond().notify();
+    }
 
     private void makeResponse(RpcStatus status, StreamObserver<PutResponse> responseObserver) {
         PutResponse.Builder builder =  PutResponse.newBuilder();

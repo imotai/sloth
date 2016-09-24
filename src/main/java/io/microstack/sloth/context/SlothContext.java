@@ -132,6 +132,7 @@ public class SlothContext {
         assert mutex.isHeldByCurrentThread();
         this.leaderIdx = leaderIdx;
         role = SlothNodeRole.kFollower;
+        logger.info("[Vote] I am the follower with term {} with leader idx {} ", newTerm, leaderIdx);
         logStatus.clear();
         ReplicateLogStatus status = ReplicateLogStatus.newStatus(endpoint);
         status.setLastLogTerm(binlogger.getPreLogTerm());
@@ -158,6 +159,7 @@ public class SlothContext {
                 status.setLastLogTerm(binlogger.getPreLogTerm());
                 status.setLastLogIndex(binlogger.getPreLogIndex());
                 status.setCommitIndex(dataStore.getCommitIdx());
+                status.setLastApplied(dataStore.getCommitIdx());
                 status.setBecomeLeaderTime(System.currentTimeMillis());
                 status.setRole(SlothNodeRole.kLeader);
             } else {
@@ -166,6 +168,7 @@ public class SlothContext {
                 status.setLastLogTerm(binlogger.getPreLogTerm());
                 status.setLastLogIndex(binlogger.getPreLogIndex());
                 status.setCommitIndex(dataStore.getCommitIdx());
+                status.setLastApplied(dataStore.getCommitIdx());
             }
         }
     }

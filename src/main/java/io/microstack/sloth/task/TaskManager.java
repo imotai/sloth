@@ -25,7 +25,7 @@ public class TaskManager {
     private Random random;
     private SlothContext context;
     private SlothOptions options;
-    private Map<TaskType, Task> tasks = new HashMap<TaskType, Task>();
+    private Map<String, Task> tasks = new HashMap<String, Task>();
     private SlothStubPool stubPool;
     public TaskManager(SlothContext context, SlothOptions options, SlothStubPool stubPool) {
         this.context = context;
@@ -53,6 +53,7 @@ public class TaskManager {
             if (context.getRole() == SlothNodeRole.kLeader) {
                 return;
             }
+            logger.warn("[Vote] process wait vote timeout");
             // trigger election
             long oldTerm = context.getCurrentTerm();
             context.setCurrentTerm(oldTerm + 1);
@@ -77,10 +78,8 @@ public class TaskManager {
                 ListenableFuture<RequestVoteResponse> fresponse = fstub.requestVote(request);
                 futures.put(endpoint, fresponse);
             }
+            resetDelayTask(TaskType.kWaitVoteTask);
             processVoteResult(futures);
-            this.stopTask(TaskType.kElectionTask);
-            this.stopTask(TaskType.kHeartBeatTask);
-            this.resetDelayTask(TaskType.kWaitVoteTask);
         } catch (Exception e) {
             logger.error("fail to process election timeout task ", e);
         }finally {
@@ -114,6 +113,7 @@ public class TaskManager {
                 }
             }
         }
+
         context.getMutex().lock();
         try {
             if (context.getRole() != SlothNodeRole.kCandidate) {
@@ -170,11 +170,11 @@ public class TaskManager {
                 try {
                     entry.getValue().get();
                 } catch (Exception e) {
-                    logger.error("fail to append entry to {} ", entry.getKey());
+                    logger.error("fail to append entry to {} ", entry.getKey(), e);
                 }
             }
             processKeepLeaderAuthorityResult(futures, reqVersion,requests);
-            Task task = tasks.get(TaskType.kHeartBeatTask);
+            Task task = tasks.get(TaskType.kHeartBeatTask.toString());
             task.handle = GSchedThreadPool.getInstance().schedule(new Runnable() {
                 @Override
                 public void run() {
@@ -248,63 +248,46 @@ public class TaskManager {
 
     public void stopTask(TaskType type) {
         assert context.getMutex().isHeldByCurrentThread();
-        if (tasks.containsKey(type)) {
-            Task task = tasks.get(type);
+        if (tasks.containsKey(type.toString())) {
+            Task task = tasks.get(type.toString());
             if (task.handle != null) {
-                logger.info("cancel task with type {}", type);
-                task.handle.cancel(true);
+                task.handle.cancel(false);
             }
-            tasks.remove(type);
+            tasks.remove(type.toString());
         }
     }
 
     public void resetDelayTask(TaskType type) {
         assert context.getMutex().isHeldByCurrentThread();
-        if (tasks.containsKey(type)) {
-            Task task = tasks.get(type);
-            if (task.handle != null) {
-                task.handle.cancel(true);
-            }
-            tasks.remove(type);
-        }
-        switch (type) {
-            case kElectionTask:
-            {
-                Task task = new Task();
-                task.type = type;
-                long delay = genElectionTimeout();
-                task.handle = GSchedThreadPool.getInstance().schedule(new Runnable() {
-                    @Override
-                    public void run() {
-                        handleElectionTimeout();
-                    }
-                }, delay);
-                tasks.put(type, task);
-            }
-            break;
-            case kWaitVoteTask:
-            {
-                Task task = new Task();
-                task.type = type;
-                task.handle = GSchedThreadPool.getInstance().schedule(new Runnable() {
-                    @Override
-                    public void run() {
-                        logger.warn("[Vote] vote timeout");
-                        handleElectionTimeout();
-                    }
-                }, options.getVoteTimeout());
-                tasks.put(type, task);
-            }
-            break;
-            case kHeartBeatTask:
-            {
-                Task task = new Task();
-                task.type = type;
-                task.handle = null;
-                tasks.put(type, task);
-                // run it right now
-                keepLeaderAuthority();
-            }
+        stopTask(type);
+        if (type == TaskType.kElectionTask) {
+            Task task = new Task();
+            task.type = type;
+            long delay = genElectionTimeout();
+            task.handle = GSchedThreadPool.getInstance().schedule(new Runnable() {
+                @Override
+                public void run() {
+                    handleElectionTimeout();
+                }
+            }, delay);
+            tasks.put(type.toString(), task);
+        }else if (type == TaskType.kWaitVoteTask) {
+            Task task = new Task();
+            task.type = type;
+            task.handle = GSchedThreadPool.getInstance().schedule(new Runnable() {
+                @Override
+                public void run() {
+                    handleElectionTimeout();
+                }
+            }, options.getVoteTimeout());
+            tasks.put(type.toString(), task);
+        } else if (type == TaskType.kHeartBeatTask) {
+            Task task = new Task();
+            task.type = type;
+            task.handle = null;
+            tasks.put(type.toString(), task);
+            // run it right now
+            keepLeaderAuthority();
         }
 
     }

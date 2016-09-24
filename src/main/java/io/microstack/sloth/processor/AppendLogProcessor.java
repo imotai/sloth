@@ -90,6 +90,14 @@ public class AppendLogProcessor {
                                     StreamObserver<AppendEntriesResponse> responseObserver) {
         assert context.getMutex().isHeldByCurrentThread();
         try {
+            if (request.getTerm() > context.getCurrentTerm()) {
+                logger.info("[AppendLog] update my term to {} from leader {}", request.getTerm(), request.getLeaderIdx());
+                context.setCurrentTerm(request.getTerm());
+            }
+            if (request.getLeaderIdx() != context.getLeaderIdx()) {
+                logger.info("[AppendLog] update leader idx to {}", request.getLeaderIdx());
+                context.setLeaderIdx((int)request.getLeaderIdx());
+            }
             taskManager.resetDelayTask(TaskManager.TaskType.kElectionTask);
             if (isMatchLog(request)) {
                 boolean ok = true;
@@ -138,10 +146,13 @@ public class AppendLogProcessor {
         ReplicateLogStatus status = context.getLogStatus().get(context.getEndpoint());
         if (status.getLastLogIndex() == request.getPreLogIndex()
                 && status.getLastLogTerm() == request.getPreLogTerm()) {
+            status.setMatched(true);
             return true;
         }
 
         if (status.getLastLogIndex() < request.getPreLogIndex()) {
+            logger.info("[LogMatch] log match fails for my last log index {}  and leader log index {}",
+                    status.getLastLogIndex(), request.getPreLogIndex());
             return false;
         }
 
@@ -159,6 +170,8 @@ public class AppendLogProcessor {
                     status.setLastLogTerm(binlogger.getPreLogTerm());
                     return true;
                 }
+                logger.info("[LogMatch] log match fails for my last log term {}  and leader log term {}",
+                        entry.getTerm(), request.getPreLogTerm());
             }
             return false;
         }
@@ -231,8 +244,8 @@ public class AppendLogProcessor {
             if (status.getLastApplied() > appliedIdx) {
                 return;
             }
-            status.setLastApplied(appliedIdx);
-            logger.info("[BgApplyLog] apply log to {}", appliedIdx);
+            status.setLastApplied(commitIdx);
+            logger.info("[BgApplyLog] apply log to {}", commitIdx);
         } catch (InvalidProtocolBufferException e) {
             logger.error("fail to batch get from binlogger ", e);
         } catch (RocksDBException e) {
