@@ -53,7 +53,8 @@ public class PutProcessor {
         task.startWaitToWrite();
         context.getMutex().lock();
         try {
-            if (tasks.size() > options.getMaxTaskCount()) {
+            if (tasks.size() > options.getMaxTaskCount()
+                    || context.getRole() != SlothNodeRole.kLeader) {
                 makeResponse(RpcStatus.kRpcRejected, responseObserver);
                 return;
             }
