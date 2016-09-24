@@ -114,12 +114,15 @@ public class PutProcessor {
         } else {
             ReplicateLogStatus status = context.getLogStatus().get(context.getEndpoint());
             status.setLastLogTerm(context.getCurrentTerm());
+            long oldIndex = status.getLastLogIndex();
             for (int i = 0; i < ids.size() && i < tasks.size(); i++) {
                 tasks.get(i).setIndex(ids.get(i));
                 tasks.get(i).endWriteLog();
                 status.setLastLogIndex(ids.get(i));
                 dataMap.put(ids.get(i), tasks.get(i));
             }
+            long newIndex = status.getLastLogIndex();
+            logger.info("[WriteLog] update leader log index from {} to {}", oldIndex, newIndex);
             return dataMap;
         }
     }
@@ -152,7 +155,7 @@ public class PutProcessor {
         }
     }
 
-    private void checkReplicateLogResult(Map<HostAndPort, ListenableFuture<AppendEntriesResponse>> responses,
+    private boolean checkReplicateLogResult(Map<HostAndPort, ListenableFuture<AppendEntriesResponse>> responses,
                                             ReplicateLogListener listener) {
         assert context.getMutex().isHeldByCurrentThread();
         int major = options.getEndpoints().size() / 2 + 1;
@@ -161,16 +164,17 @@ public class PutProcessor {
         Set<HostAndPort> doneNodes = new HashSet<HostAndPort>();
         ReplicateLogStatus leaderStatus = context.getLogStatus().get(context.getEndpoint());
         while (responses.size() > doneNodes.size()) {
-            if (!notified && replicateLogSuccessCount >= major) {
-                listener.onSuccess();
-                notified = true;
-            }
             Iterator<Map.Entry<HostAndPort, ListenableFuture<AppendEntriesResponse>>> fit = responses.entrySet().iterator();
             while (fit.hasNext()) {
+                if (!notified && replicateLogSuccessCount >= major) {
+                    listener.onSuccess();
+                    notified = true;
+                }
                 Map.Entry<HostAndPort, ListenableFuture<AppendEntriesResponse>> entry = fit.next();
                 if (!entry.getValue().isDone() || doneNodes.contains(entry.getKey())) {
                     continue;
                 }
+                doneNodes.add(entry.getKey());
                 final ReplicateLogStatus status = context.getLogStatus().get(entry.getKey());
                 try {
                     final long indexFrom = status.getLastLogIndex() + 1;
@@ -186,13 +190,16 @@ public class PutProcessor {
                         logger.error("[ReplicateLog] replicate log  {} from {} to {} failed ", entry.getKey(), indexFrom,
                                 indexTo);
                     }
-                    doneNodes.add(entry.getKey());
+
                 } catch (Exception e) {
                     logger.error("fail to get response from {}", entry.getKey(), e);
-                    doneNodes.add(entry.getKey());
                 }
             }
         }
+        if (!notified) {
+            logger.info("fail to replicate log replicate count {}", replicateLogSuccessCount);
+        }
+        return notified;
     }
 
 
@@ -215,6 +222,9 @@ public class PutProcessor {
         Map<HostAndPort, ListenableFuture<AppendEntriesResponse>> futures = new HashMap<HostAndPort, ListenableFuture<AppendEntriesResponse>>();
         for (int i = 0; i < options.getEndpoints().size(); i++) {
             final HostAndPort endpoint = options.getEndpoints().get(i);
+            if (endpoint.equals(context.getEndpoint())) {
+                continue;
+            }
             final ReplicateLogStatus status = context.getLogStatus().get(endpoint);
             if (leaderStatus.getLastLogIndex() > status.getLastLogIndex()) {
                 final long indexFrom = status.getLastLogIndex() + 1;
@@ -224,9 +234,12 @@ public class PutProcessor {
                     continue;
                 }
                 futures.put(endpoint, response);
+            }else {
+                logger.warn("leader last index {} node {} last index {}", leaderStatus.getLastLogIndex(),
+                        endpoint, status.getLastLogIndex());
             }
         }
-        checkReplicateLogResult(futures, new ReplicateLogListener() {
+        boolean notified = checkReplicateLogResult(futures, new ReplicateLogListener() {
             @Override
             public void onSuccess() {
                 Iterator<Map.Entry<Long, WriteTask>> it = batchTask.entrySet().iterator();
@@ -243,6 +256,10 @@ public class PutProcessor {
                 scheduleCommit(preLogIndex, preLogTerm, commitIdx, batchTask);
             }
         });
+        if (!notified) {
+            failAllRequest(batchTask);
+        }
+        context.getWriteCond().notify();
     }
 
     private void scheduleCommit(long preLogIndex, long preLogTerm, long commitIdx,
@@ -292,7 +309,6 @@ public class PutProcessor {
             ReplicateLogStatus leaderStatus = context.getLogStatus().get(context.getEndpoint());
             leaderStatus.setCommitIndex(commitTo);
             leaderStatus.setLastApplied(commitTo);
-            context.getWriteCond().notify();
         } catch (RocksDBException e) {
             logger.error("fail batch write data store", e);
             failAllRequest(entries);
@@ -312,7 +328,6 @@ public class PutProcessor {
             observer.onCompleted();
         }
         tasks.clear();
-        context.getWriteCond().notify();
     }
 
     private void makeResponse(RpcStatus status, StreamObserver<PutResponse> responseObserver) {

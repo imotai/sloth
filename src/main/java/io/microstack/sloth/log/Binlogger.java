@@ -81,10 +81,10 @@ public class Binlogger {
             for (Entry entry : entries) {
                 long index = preLogIndex.incrementAndGet();
                 ids.add(index);
-                entry.toBuilder().setLogIndex(index);
                 preLogTerm.set(entry.getTerm());
                 String key = BINLOGGER_PREFIX + index;
-                batch.put(key.getBytes(), entry.toByteArray());
+                //TODO reduce memory copy
+                batch.put(key.getBytes(), entry.toBuilder().setLogIndex(index).build().toByteArray());
             }
             db.write(woptions, batch);
         }

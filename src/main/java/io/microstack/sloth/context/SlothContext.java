@@ -155,20 +155,16 @@ public class SlothContext {
             ReplicateLogStatus status = ReplicateLogStatus.newStatus(nodeEndpoint);
             status.setMatched(false);
             logStatus.put(nodeEndpoint, status);
+            status.setLastLogTerm(binlogger.getPreLogTerm());
+            status.setLastLogIndex(binlogger.getPreLogIndex());
+            status.setCommitIndex(dataStore.getCommitIdx());
+            status.setLastApplied(dataStore.getCommitIdx());
             if (i == options.getIdx()) {
-                status.setLastLogTerm(binlogger.getPreLogTerm());
-                status.setLastLogIndex(binlogger.getPreLogIndex());
-                status.setCommitIndex(dataStore.getCommitIdx());
-                status.setLastApplied(dataStore.getCommitIdx());
                 status.setBecomeLeaderTime(System.currentTimeMillis());
                 status.setRole(SlothNodeRole.kLeader);
             } else {
                 status.setBecomeFollowerTime(System.currentTimeMillis());
                 status.setRole(SlothNodeRole.kFollower);
-                status.setLastLogTerm(binlogger.getPreLogTerm());
-                status.setLastLogIndex(binlogger.getPreLogIndex());
-                status.setCommitIndex(dataStore.getCommitIdx());
-                status.setLastApplied(dataStore.getCommitIdx());
             }
         }
     }

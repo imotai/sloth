@@ -29,6 +29,7 @@ public class NodeView {
         setLastLogIndex(status.getLastLogIndex());
         setLastLogTerm(status.getLastLogTerm());
         setMatched(status.isMatched());
+        setLastApplied(status.getLastApplied());
     }
 
     public HostAndPort getEndpoint() {
