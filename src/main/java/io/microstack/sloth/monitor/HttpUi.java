@@ -11,8 +11,11 @@ import io.microstack.sloth.core.SlothCore;
 import io.microstack.sloth.core.SlothOptions;
 import io.microstack.sloth.rpc.SlothStub;
 import io.microstack.sloth.rpc.SlothStubPool;
+import io.microstack.sloth.storage.DataStore;
 import org.eclipse.jetty.server.Request;
 import org.eclipse.jetty.server.handler.AbstractHandler;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -28,7 +31,7 @@ import java.util.concurrent.CountDownLatch;
  */
 @Service
 public class HttpUi extends AbstractHandler {
-
+    private static final Logger logger = LoggerFactory.getLogger(HttpUi.class);
     @Autowired
     private SlothCore core;
 
@@ -36,7 +39,8 @@ public class HttpUi extends AbstractHandler {
     private SlothOptions options;
     @Autowired
     private SlothStubPool slothStubPool;
-
+    @Autowired
+    private DataStore dataStore;
     @Override
     public void handle(String s,
                        Request request,
@@ -47,6 +51,13 @@ public class HttpUi extends AbstractHandler {
             handleCluster(httpServletRequest, httpServletResponse);
         }else if ( path != null && path.equals("/put")) {
             handlePut(httpServletRequest, httpServletResponse);
+        }else if (path != null && path.equals("/get")) {
+            try {
+                handleGet(httpServletRequest, httpServletResponse);
+            } catch (Exception e) {
+                logger.error("fail to get ", e);
+            }
+
         }else {
             httpServletResponse.setContentType("application/json;charset=UTF-8");
             httpServletResponse.getWriter().print("hello sloth!");
@@ -80,6 +91,15 @@ public class HttpUi extends AbstractHandler {
         }else {
             httpServletResponse.getWriter().print(JSON.toJSONString(data));
         }
+    }
+
+    private void handleGet(final HttpServletRequest httpServletRequest, final HttpServletResponse httpServletResponse) throws Exception {
+        String key = httpServletRequest.getParameter("key");
+        String value = new String(dataStore.get(key.getBytes()));
+        Map<String, Object> data = new HashMap<>();
+        data.put(key, value);
+        httpServletResponse.setContentType("application/json;charset=UTF-8");
+        httpServletResponse.getWriter().print(JSON.toJSONString(data));
     }
 
     private void handlePut(final HttpServletRequest httpServletRequest, final HttpServletResponse httpServletResponse) throws IOException {

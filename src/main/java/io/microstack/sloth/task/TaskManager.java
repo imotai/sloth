@@ -8,6 +8,7 @@ import io.microstack.sloth.context.SlothContext;
 import io.microstack.sloth.core.RaftCore;
 import io.microstack.sloth.core.ReplicateLogStatus;
 import io.microstack.sloth.core.SlothOptions;
+import io.microstack.sloth.log.Binlogger;
 import io.microstack.sloth.rpc.SlothStub;
 import io.microstack.sloth.rpc.SlothStubPool;
 import org.slf4j.Logger;
@@ -27,11 +28,14 @@ public class TaskManager {
     private SlothOptions options;
     private Map<String, Task> tasks = new HashMap<String, Task>();
     private SlothStubPool stubPool;
-    public TaskManager(SlothContext context, SlothOptions options, SlothStubPool stubPool) {
+    private Binlogger binlogger;
+    public TaskManager(SlothContext context, SlothOptions options, SlothStubPool stubPool,
+                       Binlogger binlogger) {
         this.context = context;
         this.options = options;
         this.stubPool = stubPool;
         random = new Random(System.nanoTime());
+        this.binlogger = binlogger;
     }
 
     public enum TaskType {
@@ -208,15 +212,25 @@ public class TaskManager {
                 try {
                     AppendEntriesResponse response = entry.getValue().get();
                     if (!response.getSuccess()) {
+                        long backLogIndex = request.getPreLogIndex() - 1;
+                        if (backLogIndex > 0) {
+                            Entry oldEntry = binlogger.get(backLogIndex);
+                            status.setLastLogTerm(oldEntry.getTerm());
+                            status.setLastLogIndex(oldEntry.getLogIndex());
+                        }else {
+                            status.setLastLogIndex(0);
+                            status.setLastLogTerm(0);
+                        }
                         continue;
                     }
                     status.setMatched(true);
                     if (status.getCommitIndex() < request.getLeaderCommitIdx()) {
                         long oldCommitIdx = status.getCommitIndex();
-                        status.setCommitIndex(request.getLeaderCommitIdx());
+                        long newCommitIdx = request.getLeaderCommitIdx() > status.getLastLogIndex() ? status.getLastLogIndex() : request.getLeaderCommitIdx();
+                        status.setCommitIndex(newCommitIdx);
                         status.incr();
                         logger.info("[Commit] move commit index from {} to {} for node {}", oldCommitIdx,
-                                status.getCommitIndex(), entry.getKey());
+                                newCommitIdx, entry.getKey());
                     }
                 } catch (Exception e) {
                     logger.error("fail to append entry to {} ", entry.getKey());

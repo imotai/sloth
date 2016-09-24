@@ -45,7 +45,7 @@ public class SlothCore {
         context.resetToFollower(-1, binlogger.getPreLogTerm());
 
         // init task manager
-        taskManager = new TaskManager(context, options, stubPool);
+        taskManager = new TaskManager(context, options, stubPool, binlogger);
         // init processor
         appendLogProcessor = new AppendLogProcessor(context, options, binlogger, dataStore, taskManager);
         requestVoteProcessor = new RequestVoteProcessor(context, options);

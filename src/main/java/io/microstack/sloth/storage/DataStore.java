@@ -58,6 +58,10 @@ public class DataStore {
         db.write(woptions, batch);
     }
 
+    public byte[] get(byte[] userKey) throws RocksDBException {
+        return db.get(userKey);
+    }
+
     public void batchWrite(TreeMap<Long, Entry> enties) throws RocksDBException {
         if (enties.isEmpty()) {
             return;
