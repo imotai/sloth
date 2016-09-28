@@ -10,6 +10,7 @@ import io.microstack.sloth.core.ReplicateLogStatus;
 import io.microstack.sloth.core.SlothOptions;
 import io.microstack.sloth.core.WriteTask;
 import io.microstack.sloth.log.Binlogger;
+import io.microstack.sloth.log.LogSequence;
 import io.microstack.sloth.rpc.SlothStub;
 import io.microstack.sloth.rpc.SlothStubPool;
 import io.microstack.sloth.storage.DataStore;
@@ -19,13 +20,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.*;
-import java.util.concurrent.ExecutionException;
 
 /**
  * Created by imotai on 2016/9/23.
  */
-public class PutProcessor {
-    private static final Logger logger = LoggerFactory.getLogger(PutProcessor.class);
+public class WriteProcessor {
+    private static final Logger logger = LoggerFactory.getLogger(WriteProcessor.class);
     private static final Logger event = LoggerFactory.getLogger("event");
     private SlothContext context;
     private SlothOptions options;
@@ -33,25 +33,30 @@ public class PutProcessor {
     private DataStore dataStore;
     private TaskManager taskManager;
     private SlothStubPool stubPool;
-    private List<WriteTask> tasks = new LinkedList<WriteTask>();
-    public PutProcessor(SlothContext context,
-                        SlothOptions options,
-                        Binlogger binlogger,
-                        DataStore dataStore,
-                        TaskManager taskManager,
-                        SlothStubPool stubPool) {
+    private LogSequence sequence;
+    private LinkedList<WriteTask> tasks = new LinkedList<WriteTask>();
+
+    public WriteProcessor(SlothContext context,
+                          SlothOptions options,
+                          Binlogger binlogger,
+                          DataStore dataStore,
+                          TaskManager taskManager,
+                          SlothStubPool stubPool) {
         this.context = context;
         this.options = options;
         this.binlogger = binlogger;
         this.dataStore = dataStore;
         this.taskManager = taskManager;
         this.stubPool = stubPool;
+        sequence = new LogSequence(binlogger.getPreLogIndex());
     }
 
     public void process(PutRequest request, StreamObserver<PutResponse> responseObserver) {
         WriteTask task = new WriteTask(request, responseObserver, context.getWriteCond());
+        task.setIndex(sequence.incrAndGet());
         task.startWaitToWrite();
         context.getMutex().lock();
+        task.buildEntry(context.getCurrentTerm());
         try {
             if (tasks.size() > options.getMaxTaskCount()
                     || context.getRole() != SlothNodeRole.kLeader) {
@@ -59,7 +64,7 @@ public class PutProcessor {
                 return;
             }
             tasks.add(task);
-            while (tasks.size() > 0 && !task.isDone() && !task.equals(tasks.get(0))) {
+            while (tasks.peek() != null && !task.isDone() && !task.equals(tasks.peek())) {
                 try {
                     task.getCondition().wait();
                 } catch (InterruptedException e) {
@@ -73,7 +78,8 @@ public class PutProcessor {
                 return;
             }
             task.endWaitToWrite();
-            TreeMap<Long, WriteTask> dataMap = batchWriteLog();
+            task.startWriteLog();
+            TreeMap<Long, WriteTask> dataMap = batchWriteLog(task);
             scheduleReplicateLog(dataMap);
         } finally {
             if (context.getMutex().isHeldByCurrentThread()) {
@@ -82,27 +88,21 @@ public class PutProcessor {
         }
     }
 
-    private TreeMap<Long, WriteTask> batchWriteLog() {
+    private TreeMap<Long, WriteTask> batchWriteLog(WriteTask last) {
         assert context.getMutex().isHeldByCurrentThread();
         List<Entry> entries = new ArrayList<Entry>();
         for (WriteTask task : tasks) {
-            Entry entry = Entry.newBuilder().setTerm(context.getCurrentTerm())
-                    .setValue(task.getRequest().getValue())
-                    .setKey(task.getRequest().getKey())
-                    .build();
-            entries.add(entry);
-            task.setEntry(entry);
-            task.startWriteLog();
+            entries.add(task.getEntry());
+            if (task.equals(last)) {
+                break;
+            }
         }
+
         TreeMap<Long, WriteTask> dataMap = new TreeMap<Long, WriteTask>();
-        List<Long> ids = null;
         try {
-            ids = binlogger.batchWrite(entries);
+            binlogger.batchWrite(entries);
         } catch (Exception e) {
-            ids = null;
             logger.error("fail to batch write log", e);
-        }
-        if (ids == null) {
             for (int i = 0; i < tasks.size(); i++) {
                 tasks.get(i).setDone(true);
                 tasks.get(i).endWriteLog();
@@ -112,24 +112,25 @@ public class PutProcessor {
             tasks.clear();
             context.getWriteCond().notify();
             return dataMap;
-        } else {
-            ReplicateLogStatus status = context.getLogStatus().get(context.getEndpoint());
-            status.setLastLogTerm(context.getCurrentTerm());
-            long oldIndex = status.getLastLogIndex();
-            for (int i = 0; i < ids.size() && i < tasks.size(); i++) {
-                tasks.get(i).setIndex(ids.get(i));
-                tasks.get(i).endWriteLog();
-                status.setLastLogIndex(ids.get(i));
-                dataMap.put(ids.get(i), tasks.get(i));
-            }
-            long newIndex = status.getLastLogIndex();
-            logger.info("[WriteLog] update leader log index from {} to {}", oldIndex, newIndex);
-            return dataMap;
         }
+
+        ReplicateLogStatus status = context.getLogStatus().get(context.getEndpoint());
+        status.setLastLogTerm(context.getCurrentTerm());
+        long oldIndex = status.getLastLogIndex();
+        for (WriteTask task : tasks) {
+            status.setLastLogIndex(task.getIndex());
+            dataMap.put(task.getIndex(), task);
+            if (task.equals(last)) {
+                break;
+            }
+        }
+        long newIndex = status.getLastLogIndex();
+        logger.info("[WriteLog] update leader log index from {} to {}", oldIndex, newIndex);
+        return dataMap;
     }
 
     private ListenableFuture<AppendEntriesResponse> sendAppendLogRequest(HostAndPort endpoint,
-                                      long indexFrom, long indexTo, long leaderCommitIdx) {
+                                                                         long indexFrom, long indexTo, long leaderCommitIdx) {
         assert context.getMutex().isHeldByCurrentThread();
         ReplicateLogStatus status = context.getLogStatus().get(endpoint);
         if (status == null || !status.isMatched()) {
@@ -187,7 +188,7 @@ public class PutProcessor {
                         status.setLastLogIndex(indexTo);
                         logger.info("[ReplicateLog] replicate log  {} from {} to {} ", entry.getKey(), indexFrom,
                                 indexTo);
-                    }else {
+                    } else {
                         logger.error("[ReplicateLog] replicate log  {} from {} to {} failed ", entry.getKey(), indexFrom,
                                 indexTo);
                     }
@@ -235,7 +236,7 @@ public class PutProcessor {
                     continue;
                 }
                 futures.put(endpoint, response);
-            }else {
+            } else {
                 logger.warn("leader last index {} node {} last index {}", leaderStatus.getLastLogIndex(),
                         endpoint, status.getLastLogIndex());
             }
@@ -332,7 +333,7 @@ public class PutProcessor {
     }
 
     private void makeResponse(RpcStatus status, StreamObserver<PutResponse> responseObserver) {
-        PutResponse.Builder builder =  PutResponse.newBuilder();
+        PutResponse.Builder builder = PutResponse.newBuilder();
         builder.setStatus(status);
         responseObserver.onNext(builder.build());
         responseObserver.onCompleted();

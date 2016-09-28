@@ -62,33 +62,25 @@ public class Binlogger {
     }
 
 
-    public long append(Entry entry) throws RocksDBException {
-        long index = 0;
+    public void append(Entry entry) throws RocksDBException {
+
         synchronized (tx) {
-            index = preLogIndex.incrementAndGet();
             preLogTerm.set(entry.getTerm());
-            String key = BINLOGGER_PREFIX + index;
+            String key = BINLOGGER_PREFIX + entry.getLogIndex();
             woptions.setSync(false);
             db.put(woptions, key.getBytes(), entry.toByteArray());
-            return index;
         }
     }
 
-    public List<Long> batchWrite(List<Entry> entries) throws RocksDBException {
-        List<Long> ids = new ArrayList<Long>();
+    public void batchWrite(List<Entry> entries) throws RocksDBException {
         synchronized (tx) {
             WriteBatch batch = new WriteBatch();
             for (Entry entry : entries) {
-                long index = preLogIndex.incrementAndGet();
-                ids.add(index);
-                preLogTerm.set(entry.getTerm());
-                String key = BINLOGGER_PREFIX + index;
-                //TODO reduce memory copy
-                batch.put(key.getBytes(), entry.toBuilder().setLogIndex(index).build().toByteArray());
+                String key = BINLOGGER_PREFIX + entry.getLogIndex();
+                batch.put(key.getBytes(), entry.toByteArray());
             }
             db.write(woptions, batch);
         }
-        return ids;
     }
 
 

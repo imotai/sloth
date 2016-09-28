@@ -5,7 +5,7 @@ import io.microstack.sloth.*;
 import io.microstack.sloth.context.SlothContext;
 import io.microstack.sloth.log.Binlogger;
 import io.microstack.sloth.processor.AppendLogProcessor;
-import io.microstack.sloth.processor.PutProcessor;
+import io.microstack.sloth.processor.WriteProcessor;
 import io.microstack.sloth.processor.RequestVoteProcessor;
 import io.microstack.sloth.rpc.SlothStubPool;
 import io.microstack.sloth.storage.DataStore;
@@ -35,7 +35,7 @@ public class SlothCore {
     private SlothContext context;
     private AppendLogProcessor appendLogProcessor;
     private RequestVoteProcessor requestVoteProcessor;
-    private PutProcessor putProcessor;
+    private WriteProcessor putProcessor;
     private TaskManager taskManager;
 
     public void init() {
@@ -49,7 +49,7 @@ public class SlothCore {
         // init processor
         appendLogProcessor = new AppendLogProcessor(context, options, binlogger, dataStore, taskManager);
         requestVoteProcessor = new RequestVoteProcessor(context, options);
-        putProcessor = new PutProcessor(context, options, binlogger, dataStore, taskManager, stubPool);
+        putProcessor = new WriteProcessor(context, options, binlogger, dataStore, taskManager, stubPool);
         // add election timeout task
         taskManager.resetDelayTask(TaskManager.TaskType.kElectionTask);
         logger.info("init slot core with log index {} and term {}", binlogger.getPreLogIndex(),

@@ -1,18 +1,9 @@
 package io.microstack.sloth;
 
 import com.google.common.util.concurrent.ListenableFuture;
-import io.grpc.stub.StreamObserver;
-import io.microstack.sloth.context.SlothContext;
-import io.microstack.sloth.core.SlothOptions;
-import io.microstack.sloth.impl.RpcSlothStubPoolImpl;
-import io.microstack.sloth.log.Binlogger;
-import io.microstack.sloth.processor.RequestVoteProcessor;
+import io.microstack.sloth.rpc.RpcSlothStubPoolImpl;
 import io.microstack.sloth.rpc.SlothStub;
-import io.microstack.sloth.storage.DataStore;
-import org.junit.Assert;
-import org.junit.Ignore;
 import org.junit.Test;
-import org.springframework.context.support.ClassPathXmlApplicationContext;
 
 import java.util.concurrent.ExecutionException;
 

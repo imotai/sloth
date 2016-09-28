@@ -180,4 +180,12 @@ public class WriteTask {
         result = 31 * result + (count != null ? count.hashCode() : 0);
         return result;
     }
+
+    public void buildEntry(long term) {
+        entry = Entry.newBuilder().setTerm(term)
+                .setValue(request.getValue())
+                .setKey(request.getKey())
+                .setLogIndex(index)
+                .build();
+    }
 }

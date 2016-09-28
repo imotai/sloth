@@ -1,15 +1,11 @@
-package io.microstack.sloth.impl;
+package io.microstack.sloth.rpc;
 
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 import io.microstack.sloth.SlothNodeGrpc;
 import io.microstack.sloth.common.SlothThreadFactory;
-import io.microstack.sloth.core.SlothOptions;
-import io.microstack.sloth.rpc.SlothStub;
-import io.microstack.sloth.rpc.SlothStubPool;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import javax.annotation.PostConstruct;
@@ -17,8 +13,6 @@ import java.util.Map;
 import java.util.TreeMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
-import java.util.concurrent.ThreadFactory;
-import java.util.concurrent.atomic.AtomicInteger;
 
 
 @Service

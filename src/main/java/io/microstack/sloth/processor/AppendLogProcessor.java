@@ -206,9 +206,8 @@ public class AppendLogProcessor {
         }
         ReplicateLogStatus status = context.getLogStatus().get(context.getEndpoint());
         try {
-            List<Long> ids = binlogger.batchWrite(entries);
-            assert ids.size() == entries.size();
-            status.setLastLogIndex(ids.get(ids.size() - 1));
+            binlogger.batchWrite(entries);
+            status.setLastLogIndex(entries.get(entries.size() - 1).getLogIndex());
             status.setLastLogTerm(request.getTerm());
             final long commitIdx = request.getLeaderCommitIdx() > status.getLastLogIndex() ? request.getLeaderCommitIdx() : status.getLastLogIndex();
             status.setCommitIndex(commitIdx);
