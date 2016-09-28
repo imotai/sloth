@@ -3,7 +3,6 @@ package io.microstack.sloth;
 import ch.qos.logback.classic.LoggerContext;
 import ch.qos.logback.classic.joran.JoranConfigurator;
 import io.grpc.stub.StreamObserver;
-import io.microstack.sloth.core.RaftCore;
 import io.microstack.sloth.log.Binlogger;
 import org.junit.Assert;
 import org.junit.Test;

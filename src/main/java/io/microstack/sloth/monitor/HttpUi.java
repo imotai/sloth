@@ -5,7 +5,6 @@ import com.google.common.net.HostAndPort;
 import com.google.protobuf.ByteString;
 import io.grpc.stub.StreamObserver;
 import io.microstack.sloth.*;
-import io.microstack.sloth.core.RaftCore;
 import io.microstack.sloth.core.ReplicateLogStatus;
 import io.microstack.sloth.core.SlothCore;
 import io.microstack.sloth.core.SlothOptions;

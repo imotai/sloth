@@ -5,7 +5,6 @@ import com.google.common.util.concurrent.ListenableFuture;
 import io.microstack.sloth.*;
 import io.microstack.sloth.common.GSchedThreadPool;
 import io.microstack.sloth.context.SlothContext;
-import io.microstack.sloth.core.RaftCore;
 import io.microstack.sloth.core.ReplicateLogStatus;
 import io.microstack.sloth.core.SlothOptions;
 import io.microstack.sloth.log.Binlogger;
