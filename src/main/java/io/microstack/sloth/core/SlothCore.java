@@ -4,6 +4,7 @@ import io.grpc.stub.StreamObserver;
 import io.microstack.sloth.*;
 import io.microstack.sloth.context.SlothContext;
 import io.microstack.sloth.log.Binlogger;
+import io.microstack.sloth.monitor.QpsRecorder;
 import io.microstack.sloth.processor.AppendLogProcessor;
 import io.microstack.sloth.processor.WriteProcessor;
 import io.microstack.sloth.processor.RequestVoteProcessor;
@@ -30,7 +31,8 @@ public class SlothCore {
     private DataStore dataStore;
     @Autowired
     private SlothStubPool stubPool;
-
+    @Autowired
+    private QpsRecorder qpsCounter;
     // self managed beans
     private SlothContext context;
     private AppendLogProcessor appendLogProcessor;
@@ -44,12 +46,14 @@ public class SlothCore {
         context.setEndpoint(options.getEndpoints().get(options.getIdx()));
         context.resetToFollower(-1, binlogger.getPreLogTerm());
 
+
         // init task manager
         taskManager = new TaskManager(context, options, stubPool, binlogger);
         // init processor
         appendLogProcessor = new AppendLogProcessor(context, options, binlogger, dataStore, taskManager);
         requestVoteProcessor = new RequestVoteProcessor(context, options);
-        putProcessor = new WriteProcessor(context, options, binlogger, dataStore, taskManager, stubPool);
+        putProcessor = new WriteProcessor(context, options, binlogger, dataStore, taskManager,
+                stubPool, qpsCounter.register("writeqps"));
         // add election timeout task
         taskManager.resetDelayTask(TaskManager.TaskType.kElectionTask);
         logger.info("init slot core with log index {} and term {}", binlogger.getPreLogIndex(),

@@ -40,6 +40,10 @@ public class HttpUi extends AbstractHandler {
     private SlothStubPool slothStubPool;
     @Autowired
     private DataStore dataStore;
+
+    @Autowired
+    private QpsRecorder qpsRecorder;
+
     @Override
     public void handle(String s,
                        Request request,
@@ -50,6 +54,8 @@ public class HttpUi extends AbstractHandler {
             handleCluster(httpServletRequest, httpServletResponse);
         }else if ( path != null && path.equals("/put")) {
             handlePut(httpServletRequest, httpServletResponse);
+        }else if (path != null && path.equals("/qps")) {
+            handleQps(httpServletRequest, httpServletResponse);
         }else if (path != null && path.equals("/get")) {
             try {
                 handleGet(httpServletRequest, httpServletResponse);
@@ -142,5 +148,30 @@ public class HttpUi extends AbstractHandler {
         try {
             count.await();
         } catch (InterruptedException e) {}
+    }
+
+    private void handleQps(final HttpServletRequest httpServletRequest,
+                           final HttpServletResponse httpServletResponse) throws IOException {
+        String key = httpServletRequest.getParameter("key");
+        long timeTo = System.currentTimeMillis();
+        long timeFrom = timeTo - 3600 * 1000;
+        List<QpsCounterLog> logs = qpsRecorder.getRange(key, timeFrom, timeTo);
+        List<QpsView> views = new ArrayList<QpsView>();
+        for (QpsCounterLog log : logs) {
+            QpsView view = new QpsView();
+            view.setQps(log.getQps());
+            view.setCtime(log.getCtime());
+            views.add(view);
+        }
+        Map<String, Object> data = new HashMap<>();
+        data.put("key", key);
+        data.put("data", views);
+        data.put("leader", core.getContext().getLeaderIdx());
+        String jsonp = httpServletRequest.getParameter("jsonp");
+        if (jsonp!=null && !jsonp.isEmpty()) {
+            httpServletResponse.getWriter().print(jsonp + "(" + JSON.toJSONString(data) + ")");
+        }else {
+            httpServletResponse.getWriter().print(JSON.toJSONString(data));
+        }
     }
 }

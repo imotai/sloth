@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>qps</title>
+    <script   src="https://code.jquery.com/jquery-2.2.4.min.js"   integrity="sha256-BbhdlvQf/xTY9gja0Dq3HiwQF8LaCRTXxZKRutelT44="   crossorigin="anonymous"></script>
+    <script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
+</head>
+<body>
+<div id="chart_div"></div>
+
+<script>
+
+    $(function() {
+        google.charts.load('current', {packages: ['corechart', 'line']});
+
+        $.getJSON("/qps?key=writeqps", function(data) {
+            var drawback = function() {
+                var cdata = new google.visualization.DataTable();
+                cdata.addColumn('date', 'time');
+                cdata.addColumn('number', 'qps');
+
+                for (var index in data.data) {
+                     var item = data.data[index];
+                     cdata.addRows([
+                        [new Date(item.ctime), item.qps]
+                        ]);
+                }
+                var options = {
+                width: 900,
+                height: 500,
+                     hAxis: {
+                         format: 'hh:mm:ss',
+                         gridlines: {count: 15}
+                      }
+                    ,
+                    vAxis: {
+                      title: 'qps'
+                    }
+            };
+
+                var chart = new google.visualization.LineChart(document.getElementById('chart_div'));
+                chart.draw(cdata, options);
+            }
+            google.charts.setOnLoadCallback(drawback);
+
+
+        });
+    });
+</script>
+</body>
+</html>

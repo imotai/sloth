@@ -6,6 +6,7 @@ import io.microstack.sloth.SlothNodeRole;
 import io.microstack.sloth.core.SlothOptions;
 import io.microstack.sloth.core.WriteTask;
 import io.microstack.sloth.log.Binlogger;
+import io.microstack.sloth.log.LogSequence;
 import io.microstack.sloth.storage.DataStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -36,7 +37,7 @@ public class SlothContext {
     private Map<Long, Integer> votedFor = new HashMap<Long, Integer>();
     private List<WriteTask> tasks = new LinkedList<WriteTask>();
     private HostAndPort endpoint;
-
+    private LogSequence sequence;
     private Binlogger binlogger;
     private DataStore dataStore;
     private SlothOptions options;
@@ -128,6 +129,14 @@ public class SlothContext {
         this.logStatus = logStatus;
     }
 
+    public LogSequence getSequence() {
+        return sequence;
+    }
+
+    public void setSequence(LogSequence sequence) {
+        this.sequence = sequence;
+    }
+
     public void resetToFollower(int leaderIdx, long newTerm) {
         assert mutex.isHeldByCurrentThread();
         this.leaderIdx = leaderIdx;
@@ -141,6 +150,7 @@ public class SlothContext {
         status.setLastApplied(dataStore.getCommitIdx());
         status.setRole(SlothNodeRole.kFollower);
         status.setBecomeFollowerTime(System.currentTimeMillis());
+        sequence = new LogSequence(binlogger.getPreLogIndex());
         logStatus.put(endpoint, status);
     }
 
@@ -162,6 +172,7 @@ public class SlothContext {
             if (i == options.getIdx()) {
                 status.setBecomeLeaderTime(System.currentTimeMillis());
                 status.setRole(SlothNodeRole.kLeader);
+                sequence = new LogSequence(binlogger.getPreLogIndex());
             } else {
                 status.setBecomeFollowerTime(System.currentTimeMillis());
                 status.setRole(SlothNodeRole.kFollower);

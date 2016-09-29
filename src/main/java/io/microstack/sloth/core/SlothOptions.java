@@ -29,6 +29,36 @@ public class SlothOptions {
 
     private int maxTaskCount = 20000;
 
+    private String qpsLogPath;
+
+    public String getQpsLogPath() {
+        return qpsLogPath;
+    }
+
+    public void setQpsLogPath(String qpsLogPath) {
+        this.qpsLogPath = qpsLogPath;
+    }
+
+    public String getTpLogPath() {
+        return tpLogPath;
+    }
+
+    public void setTpLogPath(String tpLogPath) {
+        this.tpLogPath = tpLogPath;
+    }
+
+    public String getEventLogPath() {
+        return eventLogPath;
+    }
+
+    public void setEventLogPath(String eventLogPath) {
+        this.eventLogPath = eventLogPath;
+    }
+
+    private String tpLogPath;
+    private String eventLogPath;
+
+
     public int getMaxTaskCount() {
         return maxTaskCount;
     }

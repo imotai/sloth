@@ -10,7 +10,7 @@ import io.microstack.sloth.core.ReplicateLogStatus;
 import io.microstack.sloth.core.SlothOptions;
 import io.microstack.sloth.core.WriteTask;
 import io.microstack.sloth.log.Binlogger;
-import io.microstack.sloth.log.LogSequence;
+import io.microstack.sloth.monitor.QpsRecorder;
 import io.microstack.sloth.rpc.SlothStub;
 import io.microstack.sloth.rpc.SlothStubPool;
 import io.microstack.sloth.storage.DataStore;
@@ -33,27 +33,27 @@ public class WriteProcessor {
     private DataStore dataStore;
     private TaskManager taskManager;
     private SlothStubPool stubPool;
-    private LogSequence sequence;
+    private QpsRecorder.Counter counter;
     private LinkedList<WriteTask> tasks = new LinkedList<WriteTask>();
-
     public WriteProcessor(SlothContext context,
                           SlothOptions options,
                           Binlogger binlogger,
                           DataStore dataStore,
                           TaskManager taskManager,
-                          SlothStubPool stubPool) {
+                          SlothStubPool stubPool,
+                          QpsRecorder.Counter counter) {
         this.context = context;
         this.options = options;
         this.binlogger = binlogger;
         this.dataStore = dataStore;
         this.taskManager = taskManager;
         this.stubPool = stubPool;
-        sequence = new LogSequence(binlogger.getPreLogIndex());
+        this.counter = counter;
     }
 
     public void process(PutRequest request, StreamObserver<PutResponse> responseObserver) {
         WriteTask task = new WriteTask(request, responseObserver, context.getWriteCond());
-        task.setIndex(sequence.incrAndGet());
+        task.setIndex(context.getSequence().incrAndGet());
         task.startWaitToWrite();
         context.getMutex().lock();
         task.buildEntry(context.getCurrentTerm());
@@ -303,6 +303,7 @@ public class WriteProcessor {
                         entry.getValue().getSyncLogConsumed(),
                         entry.getValue().getCommitToLocalConsumed());
                 StreamObserver<PutResponse> observer = entry.getValue().getResponseObserver();
+                counter.counter.incrementAndGet();
                 observer.onNext(response);
                 observer.onCompleted();
             }

@@ -21,7 +21,7 @@ import java.util.concurrent.ScheduledFuture;
  */
 
 public class TaskManager {
-    private final static Logger logger = LoggerFactory.getLogger(RaftCore.class);
+    private final static Logger logger = LoggerFactory.getLogger(TaskManager.class);
     private Random random;
     private SlothContext context;
     private SlothOptions options;
@@ -122,7 +122,7 @@ public class TaskManager {
             if (context.getRole() != SlothNodeRole.kCandidate) {
                 return;
             }
-            if (voteCount > major) {
+            if (voteCount >= major) {
                 becomeToLeader();
             } else {
                 logger.warn("[Vote] election fails , got vote count {}", voteCount);

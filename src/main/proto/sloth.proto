@@ -79,6 +79,19 @@ message GetClusterStatusResponse {
   int32 node_idx = 5;
 }
 
+message QpsCounterLog {
+  string key = 1;
+  uint64 ctime = 2;
+  double qps = 3;
+}
+
+message TpLog {
+  string key = 1;
+  uint64 ctime = 2;
+  double tp50 = 3;
+  double tp99 = 4;
+}
+
 service SlothNode {
 
   // raft internal rpc

@@ -78,6 +78,8 @@ public class Binlogger {
             for (Entry entry : entries) {
                 String key = BINLOGGER_PREFIX + entry.getLogIndex();
                 batch.put(key.getBytes(), entry.toByteArray());
+                preLogIndex.set(entry.getLogIndex());
+                preLogTerm.set(entry.getTerm());
             }
             db.write(woptions, batch);
         }
@@ -132,6 +134,15 @@ public class Binlogger {
 
     public long getPreLogTerm() {
         return preLogTerm.get();
+    }
+
+    public long getDataSize() {
+        try {
+            return db.getLongProperty("rocksdb.estimate-live-data-size");
+        } catch (RocksDBException e) {
+            logger.error("fail to get properties rocksdb.estimate-live-data-size", e);
+            return 0l;
+        }
     }
 
     @PreDestroy
