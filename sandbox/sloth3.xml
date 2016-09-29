@@ -19,6 +19,7 @@
 		<property name="dataPath" value="/tmp/data3"></property>
 		<property name="httpPort" value="8414"></property>
 		<property name="resourcePath" value="/tmp/statics"></property>
+    <property name="qpsLogPath" value="/tmp/qpslog3"></property>
 	</bean>
 	
 </beans>

@@ -19,6 +19,7 @@
 		<property name="binlogPath" value="/tmp/binlogger1"></property>
 		<property name="httpPort" value="8412"></property>
 		<property name="resourcePath" value="/tmp/statics"></property>
+    <property name="qpsLogPath" value="/tmp/qpslog1"></property>
 	</bean>
 	
 </beans>

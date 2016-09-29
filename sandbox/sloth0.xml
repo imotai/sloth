@@ -17,8 +17,10 @@
 		<property name="callbackPoolSize" value="10"></property>
 		<property name="replicateLogInterval" value="100"></property>
 		<property name="httpPort" value="8411"></property>
-		<property name="resourcePath" value="/tmp/statics"></property>
-		<property name="endpointStr" value="127.0.0.1:9527,127.0.0.1:9528,127.0.0.1:9529,127.0.0.1:9530,127.0.0.1:9531"></property>
+    <property name="resourcePath" value="/tmp/statics"></property>
+		<property name="qpsLogPath" value="/tmp/qpslog0"></property>
+    <property name="endpointStr" value="127.0.0.1:9527,127.0.0.1:9528,127.0.0.1:9529,127.0.0.1:9530,127.0.0.1:9531"></property>
+
 	</bean>
 	
 </beans>
