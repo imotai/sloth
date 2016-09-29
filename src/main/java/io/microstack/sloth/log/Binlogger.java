@@ -53,9 +53,9 @@ public class Binlogger {
                 preLogIndex.set(0);
             } else {
                 String key = new String(it.key());
-                preLogIndex.set(Long.parseLong(key.replace(BINLOGGER_PREFIX, "")));
                 Entry entry = Entry.parseFrom(it.value());
                 preLogTerm.set(entry.getTerm());
+                preLogIndex.set(entry.getLogIndex());
             }
             logger.info("init binlogger with log index {} and term {}", preLogIndex.get(), preLogTerm.get());
         }
