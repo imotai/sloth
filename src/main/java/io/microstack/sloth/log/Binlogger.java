@@ -1,5 +1,6 @@
 package io.microstack.sloth.log;
 
+import com.google.common.primitives.Longs;
 import com.google.protobuf.InvalidProtocolBufferException;
 import io.microstack.sloth.Entry;
 import io.microstack.sloth.core.SlothOptions;
@@ -20,7 +21,7 @@ public class Binlogger {
 
     private final static Logger logger = LoggerFactory.getLogger(Binlogger.class);
     private final static String BINLOGGER_PREFIX = "/BINLOGGER/";
-
+    private final static String BINLOGGER_INDEX="/BINLOGGER_INDEX/KEY";
     static {
         try {
             RocksDB.loadLibrary();
@@ -56,6 +57,7 @@ public class Binlogger {
                 Entry entry = Entry.parseFrom(it.value());
                 preLogTerm.set(entry.getTerm());
                 preLogIndex.set(entry.getLogIndex());
+                logger.info("use entry for logindex key {}, log index {}", key, entry.getLogIndex());
             }
             logger.info("init binlogger with log index {} and term {}", preLogIndex.get(), preLogTerm.get());
         }
@@ -63,24 +65,30 @@ public class Binlogger {
 
 
     public void append(Entry entry) throws RocksDBException {
-
         synchronized (tx) {
-            preLogTerm.set(entry.getTerm());
+            WriteBatch batch = new WriteBatch();
             String key = BINLOGGER_PREFIX + entry.getLogIndex();
+            batch.put(key.getBytes(), entry.toByteArray());
+            preLogTerm.set(entry.getTerm());
+            batch.put(BINLOGGER_INDEX.getBytes(), Longs.toByteArray(entry.getLogIndex()));
             woptions.setSync(false);
-            db.put(woptions, key.getBytes(), entry.toByteArray());
+            db.write(woptions, batch);
         }
     }
+
 
     public void batchWrite(List<Entry> entries) throws RocksDBException {
         synchronized (tx) {
             WriteBatch batch = new WriteBatch();
+            long logindex = preLogIndex.get();
             for (Entry entry : entries) {
                 String key = BINLOGGER_PREFIX + entry.getLogIndex();
                 batch.put(key.getBytes(), entry.toByteArray());
                 preLogIndex.set(entry.getLogIndex());
                 preLogTerm.set(entry.getTerm());
+                logindex = entry.getLogIndex();
             }
+            batch.put(BINLOGGER_INDEX.getBytes(), Longs.toByteArray(logindex));
             db.write(woptions, batch);
         }
     }
@@ -123,6 +131,7 @@ public class Binlogger {
             batch.remove(it.key());
             it.next();
         }
+
         db.write(woptions, batch);
         initLogIndex();
     }

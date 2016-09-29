@@ -51,7 +51,8 @@ public class WriteProcessor {
         this.counter = counter;
     }
 
-    public void process(PutRequest request, StreamObserver<PutResponse> responseObserver) {
+    public void process(PutRequest request,
+                        StreamObserver<PutResponse> responseObserver) {
         WriteTask task = new WriteTask(request, responseObserver, context.getWriteCond());
         task.setIndex(context.getSequence().incrAndGet());
         task.startWaitToWrite();
